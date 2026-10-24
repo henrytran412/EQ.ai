@@ -1,0 +1,45 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# python / node
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+dist/
+.next/
+
+# privacy: never commit raw audio/video or personal data
+*.wav
+*.mp3
+*.m4a
+*.webm
+*.mp4
+data/eval/raw/
+data/eval/audio/
+
+# training data and weights (licensed datasets: never commit, never publish)
+training/data/
+training/*/data/
+training/dataset/
+*.zip
+training/outputs/
+*.safetensors
+*.gguf
+*.pt
+*.ckpt
+*.bin
+
+# brainstorm companion mockups
+.superpowers/
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
