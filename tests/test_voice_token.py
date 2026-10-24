@@ -32,10 +32,18 @@ class VoiceToken(unittest.TestCase):
         self.assertEqual(body["token"], "short-lived-token")
         self.assertEqual(calls, [({"tts": True, "stt": True}, 600)])
         self.assertLessEqual(body["expires_in"], 3600)
-        self.assertEqual(body["tts"]["model_id"], "sonic-3.6")
+        self.assertEqual(body["tts"]["model_id"], "sonic-3.5")  # strongest speed contrast, measured 2026-10-24
         self.assertTrue(body["tts"]["voice_id"])
         self.assertEqual(body["stt"]["sample_rate"], 16000)
         self.assertIn("cartesia_version", body)
+
+    def test_stt_uses_ink2_turn_detection_in_english_with_school_terms(self):
+        body = self.make_client(lambda grants, expires_in: "t").post("/voice/token").json()
+        stt = body["stt"]
+        self.assertEqual(stt["url"], "wss://api.cartesia.ai/stt/turns/websocket")
+        self.assertEqual((stt["model"], stt["encoding"], stt["language"]), ("ink-2", "pcm_s16le", "en"))
+        self.assertIn("MySJSU", stt["keyterms"])
+        self.assertLessEqual(len(" ".join(stt["keyterms"])), 1200)  # Cartesia's limit
 
     def test_missing_cartesia_key_gives_clear_503(self):
         from services.dialogue.app import CartesiaNotConfigured

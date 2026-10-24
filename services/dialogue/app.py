@@ -3,7 +3,7 @@
 Run from the repo root:
   .venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000 --env-file .env
 Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_EFFORT, ALLOWED_ORIGINS, CAMPUS_COUNSELING,
-     CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_STT_MODEL, CHAT_LIMIT, TOKEN_LIMIT ("hits/seconds").
+     CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_TTS_MODEL, CARTESIA_STT_MODEL, CHAT_LIMIT, TOKEN_LIMIT ("hits/seconds").
 Public use: bind to 127.0.0.1 behind the Cloudflare tunnel, which sets CF-Connecting-IP.
 """
 
@@ -34,6 +34,9 @@ FALLBACK_REPLY = ("I'm sorry, I can't answer that reliably right now. Would you 
 CARTESIA_VERSION = "2026-08-14"
 TOKEN_TTL_SEC = 600  # Cartesia allows up to 3600
 DEFAULT_VOICE = "cbaf8084-f009-4838-a096-07ee2e6612b1"  # "Maya", listed by Cartesia as an Emotive voice
+# Words speech-to-text should favor (Cartesia keyterm prompting): school names that sound like common words.
+STT_KEYTERMS = ["MySJSU", "SJSU", "FASO", "Bursar", "ISSS", "FAFSA", "Spartan", "registration hold",
+                "financial aid hold", "tuition fee deferral", "F-1"]
 
 
 class CartesiaNotConfigured(RuntimeError):
@@ -152,12 +155,15 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
             log.exception("Cartesia token request failed")
             raise HTTPException(status_code=502, detail="could not get a Cartesia token")
         return {"token": token, "expires_in": TOKEN_TTL_SEC, "cartesia_version": CARTESIA_VERSION,
-                "tts": {"url": "wss://api.cartesia.ai/tts/websocket", "model_id": "sonic-3.6",
+                # sonic-3.5: calm 0.8x came out 15% slower than neutral 1x (sonic-3.6: 9%), measured 2026-10-24
+                "tts": {"url": "wss://api.cartesia.ai/tts/websocket",
+                        "model_id": os.environ.get("CARTESIA_TTS_MODEL") or "sonic-3.5",
                         "voice_id": os.environ.get("CARTESIA_VOICE_ID") or DEFAULT_VOICE,
                         "output_format": {"container": "raw", "encoding": "pcm_f32le", "sample_rate": 24000}},
-                "stt": {"url": "wss://api.cartesia.ai/stt/websocket",
-                        "model": os.environ.get("CARTESIA_STT_MODEL") or "ink-whisper",
-                        "encoding": "pcm_s16le", "sample_rate": 16000, "language": "en"}}
+                # Ink 2 turn detection decides when the student finished speaking; language pinned for accents
+                "stt": {"url": "wss://api.cartesia.ai/stt/turns/websocket",
+                        "model": os.environ.get("CARTESIA_STT_MODEL") or "ink-2",
+                        "encoding": "pcm_s16le", "sample_rate": 16000, "language": "en", "keyterms": STT_KEYTERMS}}
 
     @app.post("/signals", status_code=204)
     def post_signals(body: Signals):
