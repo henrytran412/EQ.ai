@@ -66,6 +66,10 @@ same label on the test input).
 Live service check: audio streamed in real time over the perception WebSocket produced its first voice
 reading when the 3 s window filled (3.0 s after the first chunk).
 
+Full face pipeline through the live service (YuNet face finding, crop, ConvNeXt on the GPU): 210 held-out
+test faces (30 per emotion), each placed in a 640x480 frame and sent from the laptop like a webcam frame,
+gave 164/210 = 78.1% label agreement (offline single-view test accuracy: 78.4%). Round trip about 80 ms over USB.
+
 Limits:
 - Voice test is 208 clips from 4 actors (16-32 per emotion): roughly +/-5 points. RAVDESS is acted
   speech of two fixed sentences; expect lower accuracy on real, accented student speech (not measured).

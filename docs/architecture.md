@@ -16,8 +16,18 @@ Browser (apps/student-web)          Jetson / laptop (services/perception, :8001)
   POST /voice/token  ----------->    mints 10-min Cartesia token (key stays on server)
   Cartesia Ink STT  <-- direct ---   (mic audio to Cartesia cloud)
   Cartesia Sonic TTS <-- direct --   (reply text + speed/emotion from /chat)
-  handoff --------------------->    *planned: SpacetimeDB handoffs table -> staff console*
+  POST /handoff --------------->    Claude writes the advisor case note (problem, deadline, what was
+                                     tried, first step) from the chat only, never the emotion signals.
+                                     Shown on screen; this demo does not send it to SJSU staff.
 ```
+
+## Public deployment (https://eqai.study)
+
+Everything runs on one NVIDIA Jetson Orin Nano: dialogue (:8000), perception (:8001, ONNX Runtime on
+the GPU) and the static site (:8080), each bound to 127.0.0.1 and restarted 3 s after a crash
+(`scripts/serve_jetson.sh`). A Cloudflare named tunnel (outbound only, HTTP/2) publishes just the site,
+`/chat`, `/handoff`, `/voice/token`, `/health` and `/ws/*` (`scripts/setup_tunnel.sh`); `/signals` stays
+internal. Per-visitor rate limits use Cloudflare's `CF-Connecting-IP`. Nothing is stored: no database.
 
 ## Models
 
@@ -25,7 +35,7 @@ Browser (apps/student-web)          Jetson / laptop (services/perception, :8001)
 |---|---|---|
 | Face | AffectNet, 7 emotions, cleaned and deduplicated (`training/prepare_face.py`). Baseline MobileNetV3-Large, main ConvNeXt-Tiny (ImageNet-pretrained, timm) | ONNX on the Jetson |
 | Voice | RAVDESS speech, 7 emotions, split by actor (`training/prepare_voice.py`). Baseline WavLM-base-plus, CNN EfficientNet-B0 on log-mel | ONNX on the Jetson |
-| Tone + reply | Not trained: Claude (`CLAUDE_MODEL`, default `claude-opus-5-5`) | Anthropic API |
+| Tone + reply | Not trained: Claude (`CLAUDE_MODEL`; project config Sonnet 5.5 at high effort, `DIALOGUE_EFFORT`) | Anthropic API |
 
 Training runs on a free Kaggle GPU (`training/kaggle/launch.py`). Results: `training/compare_runs.py`.
 Only numbers that were actually measured are reported, and the model is chosen on validation, never test.
@@ -44,11 +54,13 @@ Voice evidence alone never triggers an action; it only makes the assistant ask.
 
 ## Run
 
+Full instructions are in the README. In short:
+
 ```
-python -m venv .venv && .venv/Scripts/pip install -r training/requirements.txt \
-  -r services/dialogue/requirements.txt -r services/perception/requirements.txt
+python -m venv .venv && .venv/Scripts/pip install -r services/dialogue/requirements.txt \
+  -r services/perception/requirements.txt
 bash scripts/fetch_models.sh                     # face detector
-.venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000
-.venv/Scripts/uvicorn services.perception.server:create_app --factory --port 8001
+.venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000 --env-file .env
+.venv/Scripts/uvicorn services.perception.server:create_app --factory --port 8001 --env-file .env
 .venv/Scripts/python -m unittest discover -s tests
 ```

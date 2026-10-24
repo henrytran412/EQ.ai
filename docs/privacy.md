@@ -1,16 +1,19 @@
 # Privacy: where student data goes
 
-Status: describes the code as of 2026-10-24. Items marked *planned* are not built yet.
+Status: describes the code and the public site (https://eqai.study) as of 2026-10-24.
 
-| Data | Leaves the student's devices? | Where it goes | Stored? |
+| Data | Leaves the student's device? | Where it goes | Stored? |
 |---|---|---|---|
-| Camera frames | No. Only to our own Jetson (local network) | `services/perception` | No. Decoded in memory, never written |
-| Microphone audio (emotion) | No. Only to our own Jetson | `services/perception` | No. Last 3 s kept in memory only |
-| Microphone audio (speech-to-text) | **Yes: Cartesia's cloud (Ink)** | Cartesia STT, browser connects directly | Per Cartesia's terms; we store none |
+| Camera frames (opt-in) | Yes, only to EQ.ai's own Jetson, through Cloudflare's network (encrypted) | `services/perception` | No. Decoded in memory, never written |
+| Microphone audio (emotion) | Yes, only to EQ.ai's own Jetson, through Cloudflare | `services/perception` | No. Last 3 s kept in memory only |
+| Microphone audio (speech-to-text) | **Yes: Cartesia's cloud (Ink 2)** | Cartesia STT, browser connects directly | Per Cartesia's terms; we store none |
 | Face/voice emotion labels | Yes, as labels only | dialogue service, then Claude | In memory, expires after 30 s |
-| Transcript text | Yes | Claude (Anthropic API) | Not stored by our services |
+| Messages (typed or transcribed) | Yes | Claude (Anthropic API) | Not stored by our services |
 | Reply text | Yes | Cartesia TTS | Not stored by our services |
-| Handoff summary | Yes, only with student consent | advisor console (*planned: SpacetimeDB*) | *Planned: until resolved* |
+| Advisor case note | Yes: the chat text goes to Claude to write it | the student's screen (and `/staff` in the same browser) | No. This demo does not send it to SJSU staff |
+| Visitor IP address | Yes, as with any website | rate limiter in the dialogue service | In memory for 10 minutes, never logged |
+
+There is no database: when the tab closes, nothing about the conversation remains on our side.
 
 Rules enforced in code:
 - The camera is opt-in. The browser sends frames only while the camera toggle is on.
@@ -22,7 +25,10 @@ Rules enforced in code:
 - WebSocket and HTTP endpoints accept only the student app's origin.
 
 Known limits:
-- Speech-to-text sends raw voice audio to Cartesia's cloud. The student must be told in the UI.
+- Speech-to-text sends raw voice audio to Cartesia's cloud. The setup screen says so, and so does a
+  notice when the student switches to voice or turns the camera on inside the chat. The setup
+  screen also says messages and emotion labels go to Claude (Anthropic).
+- Public traffic passes through Cloudflare, which ends TLS at its edge before the tunnel to the Jetson.
 - Emotion classifiers can be wrong, especially for accented or non-native speech. The assistant asks
   before acting on a voice-only estimate and never acts on voice alone.
 - This is not a therapist or medical tool. Distress replies always include the 988 Suicide and Crisis

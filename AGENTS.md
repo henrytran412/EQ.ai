@@ -108,23 +108,20 @@ Core:
   use of Claude). Confirm the opt-in step with organizers.
 - Cal Hacks: Best People-First Social Impact, Most Creative, Most Technically Advanced, Overall
 - Cartesia: Best Use of Cartesia (emotion-controlled voice)
-- SpacetimeDB: Best Use of Spacetime (sessions, emotion events, and the live handoff queue
-  depend on its reducers and subscriptions)
+- SpacetimeDB: skipped (decided 2026-10-24). The demo stores nothing, so there is no database.
 - Microsoft: Built for the Real World, and Customer Impact Award (real users, real problem).
   Requirements not confirmed. Ask Microsoft mentors whether specific tools (Azure, VibeVoice)
   are required or count. Do not assume.
 - Meta: Bringing People Closer Together with AI (framing: helping international students
   reach people and services at their institution). Requirements not confirmed. Ask Meta
   mentors. Do not assume specific tools (e.g., Llama) are required.
-- Figma: five categories (Best Use Case of Figma, Best Use Case of Figma Agent, Most Creative
-  Use Case of Figma Agent, Best Design, Most Creative). Design the student app and staff
-  console in Figma. Confirm each category's requirements first, and only enter a category if
-  we actually used the tool that way. Keep the Figma file link in design/.
+- Figma: skipped (decided 2026-10-24). The UI was designed and built in code
+  (`apps/student-web/DESIGN-oura.md`), so we do not enter Figma categories.
 - Vultr (GPU hosting), GoDaddy Registry (domain), Commit Fellowship (opt in at submission)
 
 Optional, only if natural: Elastic Agent Builder (retrieval over school pages), Bitdeer.
 Skipped: Fetch.ai (poor fit for a real-time voice loop). Dropped: MLH Gemini (Gemini is not
-used) and Convex (SpacetimeDB chosen).
+used), Convex and SpacetimeDB (no database needed).
 
 ## 7. Tech stack
 
@@ -138,52 +135,39 @@ Confirmed direction:
   signal JSON plus the transcript and outputs state and tone settings. It does NOT write reply
   content (Claude does). Serve it on Vultr behind a token-protected API, with a quantized
   local copy as fallback. Gemini is NOT used.
-- Database: SpacetimeDB (sessions, emotion_events, handoffs; live sync to the staff console).
+- Database: none. Nothing is stored; the advisor case note is written on demand (POST /handoff).
 - Avatar: 2D animated face in the web app (expression states, mouth driven by audio level).
   No photoreal avatar.
 - Edge: NVIDIA Jetson Orin Nano for optional local perception (pretrained models first).
 - Dev laptop: ASUS Vivobook S14 (assumed no NVIDIA GPU, so no CUDA training there).
-- Python for perception, TypeScript for apps and the database client.
-- UI design: Figma (design the student app and staff console there before building).
+- Python for perception and dialogue, TypeScript for the web app.
+- UI design: built in code (`apps/student-web/DESIGN-oura.md`); Figma skipped.
 
 Pending (see section 13): STT choice (Gemini is no longer an option), model choices, frontend
 framework, retrieval method, whether VibeVoice is used at all.
 
-Bridge note: no official SpacetimeDB Python SDK was found. Plan: Python perception sends JSON
-to a small Node service that uses the TypeScript SDK to call reducers.
-
-## 8. Folder structure (proposed)
+## 8. Folder structure (as built, 2026-10-24)
 
 ```
 project-root/
-|-- CLAUDE.md             # agent context (source of truth)
-|-- AGENTS.md             # same context for Codex and other agents
+|-- CLAUDE.md, AGENTS.md    # agent context (AGENTS.md mirrors CLAUDE.md for other agents)
 |-- README.md
 |-- .gitignore
 |-- .env.example            # placeholders only
-|-- docs/                   # architecture.md, privacy.md, evaluation.md
-|-- design/                 # Figma file link, exported assets, UI notes
-|-- apps/
-|   |-- student-web/        # voice UI, consent toggles, emotion timeline
-|   `-- staff-console/      # live handoff queue
-|-- backend/                # database module: tables and reducers
+|-- apps/student-web/       # React + Vite: landing, setup, chat, advisor case note, /staff console
 |-- services/
-|   |-- perception/         # Python: emotion estimation and fusion
-|   |-- dialogue/           # Claude prompts, retrieval, behavior policy
-|   |-- voice/              # STT and TTS adapters (Cartesia)
-|   `-- bridge/             # Node: Python to database
-|-- data/
-|   |-- knowledge/          # source URLs and fetch script for public school pages
-|   `-- eval/               # eval scripts (raw audio is gitignored)
-|-- training/               # training scripts and configs (data, weights gitignored)
-|-- configs/                # default config, no secrets
-|-- scripts/                # setup and utility scripts
-|-- tests/
+|   |-- dialogue/           # FastAPI: /chat, /handoff, /voice/token, /signals; Claude, retrieval, policy
+|   `-- perception/         # FastAPI WebSocket: face + voice emotion models (ONNX on the Jetson GPU)
+|-- data/knowledge/         # official SJSU source list + page copier (copied pages are gitignored)
+|-- training/               # dataset prep, training, Kaggle runner, RESULTS.md (data, weights gitignored)
+|-- scripts/                # Jetson setup/serve/tunnel, site deploy, model fetch, Cartesia test
+|-- docs/                   # architecture.md, privacy.md
+|-- tests/                  # Python tests (web tests: apps/student-web/src/*.test.ts)
 `-- demo/                   # demo script, video notes
 ```
 
-Data model sketch: `sessions`, `emotion_events` (timestamp, label, confidence, source),
-`handoffs` (status, summary, consent, staff_id).
+No database: nothing is stored. Removed on 2026-10-24 as unused placeholders: backend/,
+services/bridge/, services/voice/, apps/staff-console/, configs/, data/eval/, design/.
 
 ## 9. Rules for working in this repo
 
