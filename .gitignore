@@ -41,6 +41,9 @@ models/
 # brainstorm companion mockups
 .superpowers/
 
+# Local design directions, browser screenshots, and verification output
+.taste-skill/
+
 # editor / OS
 .vscode/
 .idea/
@@ -49,3 +52,9 @@ Thumbs.db
 
 # copied official pages: regenerate from data/knowledge/sources.txt (not redistributed)
 data/knowledge/pages/
+
+# Jetson deployment: Cloudflare tunnel credentials, service logs, pid files
+.cloudflared/
+bin/
+logs/
+run/
