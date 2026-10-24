@@ -2,7 +2,8 @@
 
 Run from the repo root:
   .venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000
-Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_EFFORT, ALLOWED_ORIGINS, CAMPUS_COUNSELING.
+Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_EFFORT, ALLOWED_ORIGINS, CAMPUS_COUNSELING,
+     CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_STT_MODEL.
 """
 
 import logging
@@ -11,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -25,6 +26,28 @@ CRISIS = ("If you are in crisis or thinking about harming yourself, you can call
           "Suicide and Crisis Lifeline, any time.")
 FALLBACK_REPLY = ("I'm sorry, I can't answer that reliably right now. Would you like me to connect you "
                   "with an advisor who can help?")
+
+
+CARTESIA_VERSION = "2026-08-14"
+TOKEN_TTL_SEC = 600  # Cartesia allows up to 3600
+DEFAULT_VOICE = "cbaf8084-f009-4838-a096-07ee2e6612b1"  # "Maya", listed by Cartesia as an Emotive voice
+
+
+class CartesiaNotConfigured(RuntimeError):
+    pass
+
+
+def cartesia_minter(grants: dict, expires_in: int) -> str:
+    """Mint a short-lived Cartesia access token; the browser uses it as ?access_token=."""
+    import httpx
+    key = os.environ.get("CARTESIA_API_KEY", "").strip()
+    if not key:
+        raise CartesiaNotConfigured("CARTESIA_API_KEY is not set on the server")
+    r = httpx.post("https://api.cartesia.ai/access-token", timeout=10.0,
+                   headers={"Authorization": f"Bearer {key}", "Cartesia-Version": CARTESIA_VERSION},
+                   json={"grants": grants, "expires_in": expires_in})
+    r.raise_for_status()
+    return r.json()["token"]
 
 
 class Turn(BaseModel):
@@ -61,7 +84,8 @@ class Signals(BaseModel):
     voice: Reading | None = None
 
 
-def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: list[str] | None = None) -> FastAPI:
+def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: list[str] | None = None,
+               token_minter=cartesia_minter) -> FastAPI:
     if model is None:
         from .llm import ClaudeDialogue
         model = ClaudeDialogue()
@@ -77,6 +101,24 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
     @app.get("/health")
     def health():
         return {"ok": True, "passages": len(kb.passages)}
+
+    @app.post("/voice/token")
+    def voice_token():
+        """Browser talks to Cartesia directly (lowest latency); the API key never leaves this server."""
+        try:
+            token = token_minter({"tts": True, "stt": True}, TOKEN_TTL_SEC)
+        except CartesiaNotConfigured as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        except Exception:  # noqa: BLE001 - network or Cartesia error
+            log.exception("Cartesia token request failed")
+            raise HTTPException(status_code=502, detail="could not get a Cartesia token")
+        return {"token": token, "expires_in": TOKEN_TTL_SEC, "cartesia_version": CARTESIA_VERSION,
+                "tts": {"url": "wss://api.cartesia.ai/tts/websocket", "model_id": "sonic-3.6",
+                        "voice_id": os.environ.get("CARTESIA_VOICE_ID") or DEFAULT_VOICE,
+                        "output_format": {"container": "raw", "encoding": "pcm_f32le", "sample_rate": 24000}},
+                "stt": {"url": "wss://api.cartesia.ai/stt/websocket",
+                        "model": os.environ.get("CARTESIA_STT_MODEL") or "ink-whisper",
+                        "encoding": "pcm_s16le", "sample_rate": 16000, "language": "en"}}
 
     @app.post("/signals", status_code=204)
     def post_signals(body: Signals):
