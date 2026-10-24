@@ -41,12 +41,15 @@ class KnowledgeBase:
 
     @classmethod
     def load(cls, folder: Path) -> "KnowledgeBase":
-        passages = []
+        passages, seen = [], set()
         for page in sorted(folder.glob("*.md")) if folder.is_dir() else []:
             meta, body = _front_matter(page.read_text(encoding="utf-8"))
             if not meta.get("url"):
                 continue  # only pages with an official source URL can be cited
             for i, para in enumerate(p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()):
+                if para in seen:
+                    continue  # repeated text (page repeats, shared boilerplate) would crowd out other results
+                seen.add(para)
                 pid = hashlib.sha1(f"{page.name}:{i}".encode()).hexdigest()[:10]
                 passages.append(Passage(pid, meta.get("title", page.stem), meta["url"], para))
         return cls(passages)

@@ -1,0 +1,41 @@
+# Official SJSU pages the assistant may answer from. One "<slug> <url>" per line.
+# Regenerate the knowledge base with: python data/knowledge/fetch_page.py --sources data/knowledge/sources.txt
+# Chosen and checked by fetching them on 2026-10-24.
+
+# Financial aid holds (the demo flow)
+aid-holds-seven-steps https://www.sjsu.edu/faso/process/seven-steps.php
+aid-holds-registration-holds https://www.sjsu.edu/registrar/registration/registration-holds.php
+aid-holds-academic-progress https://www.sjsu.edu/faso/forms-resources/policies/academic-progress.php
+aid-holds-tuition-fee-deferral https://www.sjsu.edu/faso/process/tuition-fee-deferral.php
+aid-holds-documents-received https://www.sjsu.edu/faso/about/docsrec.php
+
+# Registration holds and deadlines
+registration-holds-isss-insurance https://www.sjsu.edu/isss/resources/health-insurance.php
+registration-holds-academic-exploratory https://www.sjsu.edu/exploratory/academic-advising/service-indicators-holds.php
+registration-spring-2027-calendar https://www.sjsu.edu/registrar/calendar/spring-2027.php
+registration-basics https://www.sjsu.edu/registrar/registration/registration-basics/index.php
+
+# Student account (Bursar)
+student-account-installment-plan https://www.sjsu.edu/bursar/payment-refunds/installment-payment-plan.php
+student-account-spring-due-dates https://www.sjsu.edu/bursar/fees-due-dates/payment-due-dates/spring.php
+student-account-pay-now https://www.sjsu.edu/bursar/payment-refunds/pay-now.php
+student-account-tuition-fees https://www.sjsu.edu/bursar/fees-due-dates/tuition-other-fees/index.php
+
+# Scholarships
+scholarships-faso-overview https://www.sjsu.edu/faso/types-of-aid/scholarships/index.php
+scholarships-faso-faq https://www.sjsu.edu/faso/about/faq.php
+scholarships-global-spartan https://www.sjsu.edu/isss/resources/scholarships/global-spartan-scholarship.php
+scholarships-international-students https://www.sjsu.edu/faso/types-of-aid/scholarships/international-students.php
+
+# International students (information only, never legal advice)
+international-maintaining-f1-status https://www.sjsu.edu/isss/current-students/f1-status/index.php
+international-reduced-course-load https://www.sjsu.edu/isss/current-students/f1-status/course-load.php
+international-contact-isss https://www.sjsu.edu/isss/about/contact.php
+
+# People to hand off to, and crisis help
+help-caps-counseling https://www.sjsu.edu/wellness/access-services/counseling/index.php
+help-wellness-emergency-crisis https://www.sjsu.edu/wellness/access-services/emergency-crisis.php
+help-faso-contact-us https://www.sjsu.edu/faso/about/contact-us.php
+help-bursar-contact-us https://www.sjsu.edu/bursar/how-we-can-help/contact-us.php
+help-registrar-contact-us https://www.sjsu.edu/registrar/about-us/contact-us.php
+help-behavioral-intervention https://www.sjsu.edu/bit/

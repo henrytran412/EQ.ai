@@ -53,6 +53,15 @@ class Retrieval(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(ids, [p.id for p in KnowledgeBase.load(Path(self.tmp.name)).passages])
 
+    def test_repeated_paragraphs_are_kept_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repeat = "*Students cannot register for classes with this hold on their account."
+            (Path(tmp) / "holds.md").write_text(
+                f"---\ntitle: Holds\nurl: https://example.edu/holds\n---\n{repeat}\n\nAdvising hold.\n\n{repeat}\n\n{repeat}\n",
+                encoding="utf-8")
+            hits = KnowledgeBase.load(Path(tmp)).search("cannot register hold", k=3)
+            self.assertEqual([h.text for h in hits].count(repeat), 1)
+
     def test_empty_folder_gives_empty_knowledge(self):
         with tempfile.TemporaryDirectory() as empty:
             self.assertEqual(KnowledgeBase.load(Path(empty)).search("hold", k=3), [])
