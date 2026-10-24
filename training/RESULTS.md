@@ -51,6 +51,21 @@ Test F1 per emotion, baseline vs ConvNeXt:
 ConvNeXt is better on every emotion. The gain is larger than this test set's sampling noise (about
 +/-1.7 points at 95% for each model). Timing is onnxruntime on the dev laptop CPU, not on the Jetson.
 
+### Inference speed on the Jetson Orin Nano (2026-10-24)
+
+L4T 39.2, onnxruntime 1.24.0 (NVIDIA Jetson build, CUDA 13) vs its CPU provider, fp32, batch 1, average after
+3 warm-up runs (`scripts/setup_jetson.sh`). GPU and CPU outputs matched (max logit difference under 0.0014,
+same label on the test input).
+
+| Model | GPU (CUDA) | CPU (6 cores) |
+|---|---|---|
+| face ConvNeXt-Tiny (ships) | 19.6 ms | 113.9 ms |
+| face MobileNetV3-Large | 6.1 ms | 12.9 ms |
+| voice WavLM-base-plus, 3 s window | 83.0 ms | 465.0 ms |
+
+Live service check: audio streamed in real time over the perception WebSocket produced its first voice
+reading when the 3 s window filled (3.0 s after the first chunk).
+
 Limits:
 - Voice test is 208 clips from 4 actors (16-32 per emotion): roughly +/-5 points. RAVDESS is acted
   speech of two fixed sentences; expect lower accuracy on real, accented student speech (not measured).
