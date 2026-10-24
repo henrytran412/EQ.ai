@@ -30,6 +30,7 @@ training/dataset/
 *.zip
 training/outputs/
 training/runs/
+models/
 *.onnx
 *.safetensors
 *.gguf
