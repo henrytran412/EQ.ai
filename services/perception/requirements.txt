@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+websockets  # uvicorn needs a WebSocket library to accept browser connections
+httpx
+numpy
+pillow
+opencv-python-headless  # FaceDetectorYN (YuNet); on the Jetson use JetPack's OpenCV if it has YuNet
+onnxruntime  # on the Jetson install the onnxruntime-gpu wheel built for JetPack
