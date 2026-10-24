@@ -23,7 +23,8 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _session(path: Path) -> ort.InferenceSession:
-    wanted = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
+    # Not TensorRT: it isn't installed on the Jetson, and requesting it drops onnxruntime to CPU, not CUDA.
+    wanted = ["CUDAExecutionProvider", "CPUExecutionProvider"]
     providers = [p for p in wanted if p in ort.get_available_providers()]
     session = ort.InferenceSession(str(path), providers=providers)
     log.info("%s on %s", path.name, session.get_providers()[0])

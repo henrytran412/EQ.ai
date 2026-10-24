@@ -24,7 +24,10 @@ stop() {  # by saved pid only, never by name pattern (the Jetson is shared)
 case "${1:-status}" in
   start)
     start dialogue .venv/bin/uvicorn services.dialogue.app:create_app --factory --host 127.0.0.1 --port 8000 --env-file .env
-    start perception .venv/bin/uvicorn services.perception.server:create_app --factory --host 127.0.0.1 --port 8001 --env-file .env
+    # CUDA/cuDNN live in pip packages inside .venv (scripts/setup_jetson.sh); without them perception uses the CPU
+    nv=$(echo "$PWD"/.venv/lib/python3*/site-packages/nvidia)
+    start perception env LD_LIBRARY_PATH="$nv/cu13/lib:$nv/cudnn/lib" \
+      .venv/bin/uvicorn services.perception.server:create_app --factory --host 127.0.0.1 --port 8001 --env-file .env
     start website .venv/bin/python -m http.server 8080 --bind 127.0.0.1 --directory apps/student-web/dist
     # HOME=$PWD keeps cloudflared's login cert and tunnel credentials in ./.cloudflared (gitignored)
     if [ -f .cloudflared/config.yml ]; then start tunnel env HOME="$PWD" bin/cloudflared tunnel --config .cloudflared/config.yml run
