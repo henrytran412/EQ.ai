@@ -34,6 +34,16 @@ SAMPLE_RATE = 16000
 WAVLM = "microsoft/wavlm-base-plus"
 
 
+# Speed perturbation 0.9x-1.1x via resampling. Rates are round on purpose: a random rate such as
+# 17174 Hz builds a huge polyphase kernel and took 0.9-3.6 s per clip; these take ~3 ms.
+SPEED_RATES = (14400, 15200, 16000, 16800, 17600)
+
+
+def change_speed(wav: torch.Tensor, rate: int) -> torch.Tensor:
+    """Play the clip at rate/16000 speed (17600 -> 1.1x faster, shorter clip)."""
+    return wav if rate == SAMPLE_RATE else AF.resample(wav, rate, SAMPLE_RATE)
+
+
 def load_clip(path: Path) -> torch.Tensor:
     audio, sr = sf.read(path, dtype="float32", always_2d=True)
     wav = torch.from_numpy(audio.mean(axis=1))
@@ -61,8 +71,7 @@ class VoiceDataset(Dataset):
     def __getitem__(self, i: int):
         wav = self.clips[i]
         if self.train:
-            speed = random.uniform(0.9, 1.1)  # speed perturbation by resampling
-            wav = AF.resample(wav, int(SAMPLE_RATE * speed), SAMPLE_RATE)
+            wav = change_speed(wav, random.choice(SPEED_RATES))
         wav = fit_length(wav, self.window, random_offset=self.train)
         if self.train:
             wav = wav * random.uniform(0.7, 1.3)
