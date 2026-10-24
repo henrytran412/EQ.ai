@@ -17,6 +17,7 @@ cf tunnel route dns --overwrite-dns "$NAME" "$HOST"
 cat > .cloudflared/config.yml <<EOF
 tunnel: $ID
 credentials-file: $PWD/.cloudflared/$ID.json
+protocol: http2 # TCP: busy venue Wi-Fi often throttles the default QUIC (UDP)
 ingress:
   # Only these paths are public. /signals (emotion labels from perception) stays on the Jetson.
   - hostname: $HOST
