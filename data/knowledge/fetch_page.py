@@ -1,10 +1,11 @@
-"""Copy one official school page into the knowledge base, verbatim.
+"""Copy official school pages into the knowledge base, verbatim.
 
-  python data/knowledge/fetch_page.py https://www.sjsu.edu/<page> --out data/knowledge/pages/<name>.md
+  python data/knowledge/fetch_page.py --sources data/knowledge/sources.txt   # all pages
+  python data/knowledge/fetch_page.py https://www.sjsu.edu/<page> --out <file>.md  # one page
 
 Keeps the page's main content (drops menus, scripts, footers, sidebars), collapses whitespace,
 and never rewrites wording. Refuses any URL that is not https on the school's domain.
-After fetching you may DELETE irrelevant paragraphs, but never edit the text that remains.
+Copied pages are not committed; regenerate them from sources.txt.
 """
 
 import argparse
@@ -12,6 +13,7 @@ import datetime
 import re
 import urllib.request
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import urlsplit
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
@@ -111,20 +113,49 @@ def html_to_markdown(html: str, url: str, copied: str) -> str:
     return f"---\ntitle: {title}\nurl: {url}\n---\n{body}\n\nCopied {copied} from the official page.\n"
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("url")
-    p.add_argument("--out", required=True)
-    p.add_argument("--domain", default="sjsu.edu")
-    args = p.parse_args()
-    check_official(args.url, args.domain)
-    request = urllib.request.Request(args.url, headers={"User-Agent": "Mozilla/5.0 (EQ.ai knowledge base copy)"})
+def parse_sources(text: str, domain: str) -> list[tuple[str, str]]:
+    """Lines of "<slug> <url>"; blank lines and # comments ignored. Slugs become file names."""
+    pairs, seen = [], set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) != 2 or not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", parts[0]) or parts[0] in seen:
+            raise ValueError(f"bad sources line: {line!r}")
+        check_official(parts[1], domain)
+        seen.add(parts[0])
+        pairs.append((parts[0], parts[1]))
+    return pairs
+
+
+def copy_page(url: str, out: Path) -> int:
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (EQ.ai knowledge base copy)"})
     with urllib.request.urlopen(request, timeout=30) as response:
         html = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
-    md = html_to_markdown(html, args.url, datetime.date.today().isoformat())
-    with open(args.out, "w", encoding="utf-8") as f:
-        f.write(md)
-    print(f"{args.out}: {md.count(chr(10) + chr(10))} passages from {args.url}")
+    md = html_to_markdown(html, url, datetime.date.today().isoformat())
+    out.write_text(md, encoding="utf-8")
+    return md.count("\n\n")
+
+
+def main() -> None:
+    here = Path(__file__).parent
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("url", nargs="?")
+    p.add_argument("--out", type=Path)
+    p.add_argument("--sources", type=Path)
+    p.add_argument("--out-dir", type=Path, default=here / "pages")
+    p.add_argument("--domain", default="sjsu.edu")
+    args = p.parse_args()
+    if args.sources:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        for slug, url in parse_sources(args.sources.read_text(encoding="utf-8"), args.domain):
+            print(f"{slug}: {copy_page(url, args.out_dir / f'{slug}.md')} passages from {url}")
+    elif args.url and args.out:
+        check_official(args.url, args.domain)
+        print(f"{args.out}: {copy_page(args.url, args.out)} passages from {args.url}")
+    else:
+        p.error("give --sources FILE, or a URL with --out FILE")
 
 
 if __name__ == "__main__":

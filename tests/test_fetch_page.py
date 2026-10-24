@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "data" / "knowledge"))
 
-from fetch_page import check_official, html_to_markdown  # noqa: E402
+from fetch_page import check_official, html_to_markdown, parse_sources  # noqa: E402
 
 PAGE = """<html><head><title>Registration Holds | Financial Aid | SJSU</title>
 <script>var tracking = 1;</script><style>p { color: red }</style></head>
@@ -75,6 +75,19 @@ class OfficialOnly(unittest.TestCase):
                     "https://example.com/?u=sjsu.edu"):
             with self.assertRaises(ValueError):
                 check_official(bad, "sjsu.edu")
+
+
+class SourcesFile(unittest.TestCase):
+    def test_lines_are_slug_and_url_with_comments_ignored(self):
+        text = "# financial aid\naid-holds https://www.sjsu.edu/faso/a\n\n  help-caps   https://www.sjsu.edu/caps/  \n"
+        self.assertEqual(parse_sources(text, "sjsu.edu"),
+                         [("aid-holds", "https://www.sjsu.edu/faso/a"), ("help-caps", "https://www.sjsu.edu/caps/")])
+
+    def test_bad_slug_duplicate_or_unofficial_url_is_rejected(self):
+        for bad in ("Aid Holds https://www.sjsu.edu/a", "../x https://www.sjsu.edu/a",
+                    "a https://www.sjsu.edu/a\na https://www.sjsu.edu/b", "a https://evil.com/a", "only-a-slug"):
+            with self.assertRaises(ValueError):
+                parse_sources(bad, "sjsu.edu")
 
 
 if __name__ == "__main__":
