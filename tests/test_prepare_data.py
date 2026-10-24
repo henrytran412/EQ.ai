@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "training"))
 
-from prepare_face import attach_labels, dedupe  # noqa: E402
+from prepare_face import attach_labels, dedupe, dhash, resplit, split_for  # noqa: E402
 from prepare_voice import actor_split, build_rows, parse_name  # noqa: E402
 
 
@@ -46,6 +46,49 @@ class FaceCleaning(unittest.TestCase):
         kept, dropped = dedupe([a, b])
         self.assertEqual(kept, [])
         self.assertEqual(dropped["identical image, conflicting labels"], 2)
+
+
+class FaceResplit(unittest.TestCase):
+    """AffectNet's own test/sad folder is entirely copies of train/val, so the pool is re-split."""
+
+    def test_split_is_deterministic_and_close_to_80_10_10(self):
+        keys = [f"{i:016x}" for i in range(20000)]
+        splits = [split_for(k) for k in keys]
+        self.assertEqual(splits, [split_for(k) for k in keys])
+        for name, share in (("train", 0.8), ("val", 0.1), ("test", 0.1)):
+            self.assertAlmostEqual(splits.count(name) / len(keys), share, delta=0.02)
+
+    def test_near_duplicates_land_in_the_same_split(self):
+        a, b = img("train", "anger/a.jpg", "1"), img("test", "anger/b.jpg", "2")
+        a["group"] = b["group"] = "same-dhash"
+        a["label"] = b["label"] = "anger"
+        out = resplit([a, b])
+        self.assertEqual(out[0]["split"], out[1]["split"])
+        self.assertEqual((out[0]["orig_split"], out[1]["orig_split"]), ("train", "test"))
+
+    def test_dhash_ignores_re_encoding_but_tells_faces_apart(self):
+        import io
+        import random
+        from PIL import Image
+        rng = random.Random(0)
+        def picture(up, start):  # 9x8 coarse structure with clear steps, like real facial features
+            grid = []
+            for _ in range(8):
+                row = [start]
+                for i in range(8):  # steps of 40-60 that never clip at 0 or 255
+                    row.append(row[-1] + (1 if up(i) else -1) * rng.randrange(40, 60))
+                grid += row
+            img = Image.new("L", (9, 8))
+            img.putdata(grid)
+            return img.resize((96, 96), Image.BILINEAR).convert("RGB")
+
+        face = picture(lambda i: i % 2 == 0, 100)
+        other = picture(lambda i: i % 3 == 0, 230)
+        buf = io.BytesIO()
+        face.save(buf, "JPEG", quality=60)
+        re_encoded = Image.open(io.BytesIO(buf.getvalue()))
+        self.assertEqual(dhash(face), dhash(re_encoded))
+        self.assertNotEqual(dhash(face), dhash(other))
 
 
 class VoiceCleaning(unittest.TestCase):

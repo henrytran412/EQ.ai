@@ -131,7 +131,7 @@ class WavLMClassifier(nn.Module):
         self.model.freeze_feature_encoder()  # the convolutional front end stays as pretrained
 
     def forward(self, wav: torch.Tensor) -> torch.Tensor:
-        wav = (wav - wav.mean(-1, keepdim=True)) / (wav.std(-1, keepdim=True) + 1e-5)
+        # wavlm-base-plus specifies do_normalize=False in its preprocessor config.
         return self.model(input_values=wav).logits
 
 

@@ -2,7 +2,41 @@
 
 Only numbers that were actually measured. The model is chosen on validation; test is reported once.
 
-## Kaggle run 1: commit 5c04d79, 2026-10-24, 1x Tesla T4
+## Kaggle run 3 (current models): 2026-10-24, 2x Tesla T4
+
+Code: base commit a4473ee plus the working-tree changes committed with this file (Kaggle
+`--local-snapshot`, source SHA256 936c94e5...; every snapshot file matched the local code).
+Outputs: `training/runs/run3/` (gitignored). Face data re-split 80/10/10 by perceptual hash
+(train 19,021 / val 2,376 / test 2,395) because AffectNet's own test/sad folder was entirely copies
+of train/val. Voice: RAVDESS split by actor (train 1-18, val 19-20, test 21-24).
+
+| Model | val macro-F1 | test accuracy | test macro-F1 | shipped ONNX re-scored locally |
+|---|---|---|---|---|
+| **face_convnext** (ConvNeXt-Tiny) | 0.785 | 0.782 | 0.770 | **0.784 / 0.773** (single view, as shipped) |
+| **voice_wavlm** (WavLM-base-plus) | 0.825 | 0.875 | 0.884 | **0.875 / 0.884** (identical) |
+| voice_mel (EfficientNet-B0, log-mel) | 0.730 | 0.644 | 0.633 | 0.635 / 0.621 (fp16 log-mel in eval vs fp32 ONNX) |
+
+Kaggle's face numbers use flip test-time augmentation; the shipped single-view ONNX scores slightly higher.
+
+Test per emotion, face_convnext (F1 / recall / n):
+
+| anger | disgust | fear | happy | neutral | sad | surprise |
+|---|---|---|---|---|---|---|
+| 0.738 / 71.7% / 350 | 0.701 / 67.6% / 324 | 0.798 / 79.5% / 288 | 0.937 / 92.9% / 434 | 0.722 / 81.6% / 255 | 0.692 / 68.0% / 284 | 0.805 / 80.2% / 460 |
+
+Test per emotion, voice_wavlm (F1 / recall / n):
+
+| anger | disgust | fear | happy | neutral | sad | surprise |
+|---|---|---|---|---|---|---|
+| 0.849 / 96.9% / 32 | 0.839 / 81.2% / 32 | 0.915 / 84.4% / 32 | 0.821 / 71.9% / 32 | 1.000 / 100% / 16 | 0.889 / 87.5% / 32 | 0.873 / 96.9% / 32 |
+
+Limits:
+- Voice test is 208 clips from 4 actors (16-32 per emotion): roughly +/-5 points. RAVDESS is acted
+  speech of two fixed sentences; expect lower accuracy on real, accented student speech (not measured).
+- Face labels come from labels.csv (origin undocumented); test measures agreement with those labels.
+- No MobileNetV3 baseline on the new split yet, so the ConvNeXt gain over the baseline is not measured.
+
+## Kaggle run 1: commit 5c04d79, 2026-10-24, 1x Tesla T4 (old split, superseded)
 
 Source: the Kaggle kernel log (`henrytran412/eq-ai-train` version 1), copied by hand because the run
 was stopped before Kaggle saved its output files.

@@ -5,11 +5,16 @@ training/face/data/manifest.csv. Raw images are never moved or deleted.
 
 Cleaning rules:
 - label comes from labels.csv (the relabelled column); the folder name is kept as
-  folder_label for comparison
+  folder_label for comparison. Where that column came from is undocumented, so test scores
+  measure agreement with it.
 - drop rows labelled contempt and images with no usable label
 - drop a labels.csv path that exists in several splits with different pixels (ambiguous)
-- byte-identical copies are kept once, preferring train > val > test, so no test
-  image was seen in training; copies with conflicting labels are all dropped
+- byte-identical copies are kept once; copies with conflicting labels are all dropped
+- the pool is RE-SPLIT 80/10/10: AffectNet's own test/sad folder (1,584 images) is entirely
+  byte-identical copies of train/sad and val/sad, so after deduplication its "test" sad class
+  held only relabelled images from other folders. Images with the same perceptual hash
+  (dHash) share a split. This catches some re-encodes, not all near-duplicates or identities.
+  The original split is kept in orig_split.
 """
 
 import argparse
@@ -19,10 +24,35 @@ import logging
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from PIL import Image
+
 from emotions import EMOTIONS
 
 SPLITS = ("train", "val", "test")  # also the keep-priority order for duplicates
 log = logging.getLogger("prepare_face")
+
+
+def dhash(image: Image.Image) -> str:
+    """64-bit difference hash; approximate grouping, not an identity/leakage guarantee."""
+    small = image.convert("L").resize((9, 8), Image.LANCZOS)
+    px = list(small.getdata())
+    bits = 0
+    for row in range(8):
+        for col in range(8):
+            bits = (bits << 1) | (px[row * 9 + col] < px[row * 9 + col + 1])
+    return f"{bits:016x}"
+
+
+def split_for(key: str) -> str:
+    """Deterministic 80/10/10 split from a stable hash of the key."""
+    u = int(hashlib.sha1(key.encode()).hexdigest()[:8], 16) / 2**32
+    return "train" if u < 0.8 else "val" if u < 0.9 else "test"
+
+
+def resplit(images: list[dict]) -> list[dict]:
+    for img in images:
+        img["orig_split"], img["split"] = img["split"], split_for(img["group"])
+    return images
 
 
 def scan_images(data_dir: Path) -> list[dict]:
@@ -31,12 +61,15 @@ def scan_images(data_dir: Path) -> list[dict]:
         for path in sorted((data_dir / split).rglob("*")):
             if path.is_file():
                 rel = path.relative_to(data_dir / split).as_posix()
+                with Image.open(path) as im:
+                    group = dhash(im)
                 images.append({
                     "path": f"{split}/{rel}",
                     "split": split,
                     "key": rel.lower(),  # labels.csv paths are relative to the split folder
                     "folder_label": rel.split("/")[0].lower(),  # test/ has "Anger"
                     "md5": hashlib.md5(path.read_bytes()).hexdigest(),
+                    "group": group,
                 })
     return images
 
@@ -84,6 +117,7 @@ def dedupe(images: list[dict]) -> tuple[list[dict], Counter]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data-dir", type=Path, default=Path(__file__).parent / "face" / "data")
+    parser.add_argument("--out", type=Path, help="Write manifest outside a read-only dataset")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -93,11 +127,16 @@ def main() -> None:
     dropped = attach_labels(images, label_rows)
     kept, dup_dropped = dedupe([img for img in images if "label" in img])
     dropped.update(dup_dropped)
+    kept = resplit(kept)
+    groups = Counter(img["group"] for img in kept)
+    log.info("near-duplicate groups (same dHash, >1 image): %d covering %d images",
+             sum(n > 1 for n in groups.values()), sum(n for n in groups.values() if n > 1))
 
-    out = args.data_dir / "manifest.csv"
+    out = args.out or args.data_dir / "manifest.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["path", "split", "label", "folder_label", "relfcs", "md5"],
-                                extrasaction="ignore")
+        writer = csv.DictWriter(f, fieldnames=["path", "split", "label", "folder_label", "relfcs", "md5",
+                                               "group", "orig_split"], extrasaction="ignore")
         writer.writeheader()
         writer.writerows(kept)
 

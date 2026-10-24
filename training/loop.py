@@ -56,7 +56,7 @@ def predict(model: nn.Module, loader, device: torch.device,
 def fit(model: nn.Module, head: nn.Module, train_dl, val_dl, labels: list[str], args, device: torch.device,
         out_dir: Path, mix_fn: Callable | None = None, class_weights: torch.Tensor | None = None,
         tta: Callable | None = None) -> tuple[nn.Module, dict]:
-    """Train, keep the EMA weights with the best val macro F1, and return (best model, best val metrics)."""
+    """Select raw or EMA weights by validation macro F1; never select using test data."""
     out_dir.mkdir(parents=True, exist_ok=True)
     head_ids = {id(p) for p in head.parameters()}
     backbone = [p for p in model.parameters() if p.requires_grad and id(p) not in head_ids]
@@ -97,7 +97,10 @@ def fit(model: nn.Module, head: nn.Module, train_dl, val_dl, labels: list[str], 
                 ema.update_parameters(model)
                 loss_sum, steps = loss_sum + loss.item(), steps + 1
 
-            val = classification_metrics(*predict(ema.module, val_dl, device, tta), labels)
+            candidates = [(name, candidate, classification_metrics(*predict(candidate, val_dl, device, tta), labels))
+                          for name, candidate in (("raw", model), ("ema", ema.module))]
+            weights, selected, val = max(candidates, key=lambda item: item[2]["macro_f1"])
+            val["weights"] = weights
             history.writerow([epoch, round(loss_sum / max(1, steps), 4), round(val["accuracy"], 4),
                               round(val["macro_f1"], 4), f"{scheduler.get_last_lr()[-1]:.2e}",
                               round(time.time() - start, 1)])
@@ -106,7 +109,7 @@ def fit(model: nn.Module, head: nn.Module, train_dl, val_dl, labels: list[str], 
                      loss_sum / max(1, steps), val["accuracy"], val["macro_f1"], time.time() - start)
             if val["macro_f1"] > best_f1:
                 best_f1, best_metrics, stale = val["macro_f1"], val, 0
-                torch.save({"state_dict": ema.module.state_dict(), "labels": labels,
+                torch.save({"state_dict": selected.state_dict(), "labels": labels, "weights": weights,
                             "config": {k: str(v) for k, v in vars(args).items()}},  # plain strings: safe torch.load
                            out_dir / "best.pt")
             else:

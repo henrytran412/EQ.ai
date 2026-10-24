@@ -41,6 +41,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--data-dir", type=Path, required=True, help="folder with manifest.csv and train/val/test")
     p.add_argument("--out-dir", type=Path, required=True)
+    p.add_argument("--manifest", type=Path, help="Override the dataset's bundled manifest")
     p.add_argument("--model", default="convnext_tiny.fb_in22k_ft_in1k")
     p.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=True)
     p.add_argument("--epochs", type=int, default=30)
@@ -66,7 +67,7 @@ def main(argv=None) -> None:
     device = pick_device()
     labels = list(EMOTIONS)
 
-    with open(args.data_dir / "manifest.csv", newline="", encoding="utf-8") as f:
+    with open(args.manifest or args.data_dir / "manifest.csv", newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     splits = {s: [r for r in rows if r["split"] == s] for s in ("train", "val", "test")}
     log.info("device %s | %s", device, {s: len(r) for s, r in splits.items()})

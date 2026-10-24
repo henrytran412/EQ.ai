@@ -33,11 +33,16 @@ def run_lanes(lanes: list[list[dict]], build_cmd: Callable[[dict], list[str]]) -
     def run_lane(gpu: int, lane: list[dict]) -> None:
         env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu), "PYTHONUNBUFFERED": "1"}
         for job in lane:
-            proc = subprocess.Popen(build_cmd(job), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
-                                    text=True, encoding="utf-8", errors="replace")
-            for line in proc.stdout:
-                print(f"[{job['name']}] {line}", end="", flush=True)
-            if proc.wait() != 0:
+            try:
+                with subprocess.Popen(build_cmd(job), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+                                      text=True, encoding="utf-8", errors="replace") as proc:
+                    for line in proc.stdout:
+                        print(f"[{job['name']}] {line}", end="", flush=True)
+                    code = proc.wait()
+            except Exception as exc:
+                print(f"[{job['name']}] failed to launch: {exc}", flush=True)
+                code = 1
+            if code != 0:
                 with lock:
                     failed.append(job["name"])
 
@@ -77,11 +82,16 @@ def main() -> None:
     p.add_argument("--input", type=Path, default=Path("/kaggle/input"))
     p.add_argument("--work", type=Path, default=Path("/kaggle/working"))
     args = p.parse_args()
+    args.work.mkdir(parents=True, exist_ok=True)
     jobs = json.loads(args.jobs)
     kinds = {j["kind"] for j in jobs}
     face_dir = find_face_dir(args.input) if "face" in kinds else None
     voice_dir = find_voice_dir(args.input) if "voice" in kinds else None
     manifest = args.work / "voice_manifest.csv"
+    face_manifest = args.work / "face_manifest.csv"
+    if face_dir:
+        subprocess.run([sys.executable, str(REPO / "training" / "prepare_face.py"),
+                        "--data-dir", str(face_dir), "--out", str(face_manifest)], check=True)
     if voice_dir:
         subprocess.run([sys.executable, str(REPO / "training" / "prepare_voice.py"), "--audio-dir", str(voice_dir),
                         "--out", str(manifest)], check=True)
@@ -90,6 +100,7 @@ def main() -> None:
         out = str(args.work / "out" / job["name"])
         if job["kind"] == "face":
             return [sys.executable, str(REPO / "training" / "train_face.py"), "--data-dir", str(face_dir),
+                    "--manifest", str(face_manifest),
                     "--out-dir", out, *job["args"]]
         return [sys.executable, str(REPO / "training" / "train_voice.py"), "--audio-dir", str(voice_dir),
                 "--manifest", str(manifest), "--out-dir", out, *job["args"]]
