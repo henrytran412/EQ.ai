@@ -2,10 +2,58 @@
 
 React + Vite + TypeScript. Styling follows `DESIGN-oura.md` (Fraunces/Inter stand in for Oura's fonts).
 
+**Website: [eqai.study](https://eqai.study)**
+
+## UI preview
+
+Screenshots of the local frontend, captured October 24, 2026. The conversation uses
+the app's labeled, scripted demo with a fictional student, not a real student session.
+The deployed website may differ until these changes are deployed.
+
+### Welcome page
+
+![EQ.ai welcome page with the bear, student support introduction, and navigation to model results](docs/screenshots/landing-desktop.jpg)
+
+### Conversation and emotion map
+
+The conversation stays on the left, with a compact assistant, readable message groups,
+and a persistent composer. The right panel separates the final state prediction,
+face/voice confidence, and the assistant's reply tone. Chat settings group the input,
+reply, and optional camera controls; the human-handoff action stays visible.
+
+![Desktop conversation alongside the final-state confidence, face and voice reading status, and emotion network](docs/screenshots/chat-desktop.jpg)
+
+### Mobile views
+
+Conversation and Emotion map are separate views on smaller screens, with the same
+chat state preserved when switching. The map remains available on mobile.
+
+<p>
+  <img src="docs/screenshots/chat-mobile.jpg" width="320" alt="Mobile conversation with labeled messages, persistent text input, and navigation to the emotion map" />
+  <img src="docs/screenshots/emotion-map-mobile.jpg" width="320" alt="Mobile emotion map with a final-state estimate, separate face and voice status, clear node labels, and a pink-dot blue-ring legend" />
+</p>
+
+### Understanding the predictions
+
+- **Final state:** the latest `/chat` response's `tone.state` and `tone.confidence`.
+- **Face and voice:** each perception reading's own `label` and `confidence`, shown separately.
+  Disabled sensors and missing readings are stated explicitly, not shown as zero confidence.
+- **Confidence is not accuracy.** The demo's final state comes from scripted text rules,
+  not face/voice fusion. The screenshots intentionally show the camera off and text input;
+  no sensor measurements were invented for them.
+- **Map:** pink dots show estimated signals; blue rings indicate the reply tone.
+  Both remain distinguishable when they occupy the same node. Show blends reveals the
+  additional network connections; blended nodes are illustrative, not measured classes.
+- Recent turns retain readable labels and confidence values. “How to read this map”
+  explains the axes, limitations, and service status. Motion respects reduced-motion settings.
+
+The redraw follows the installed `design-taste-frontend` and `emil-design-eng` skills:
+quiet sage/bone surfaces, conversation-first hierarchy, and motion limited to useful feedback.
+
 ```bash
 npm install
 npm run dev        # http://localhost:5173 (student), http://localhost:5173/staff (staff console)
-npm test           # policy, perception, emotion-map, and training-results checks
+npm test           # policy, perception, emotion-map, training-results, voice, and case-note checks
 npm run build      # type-check + production build
 ```
 

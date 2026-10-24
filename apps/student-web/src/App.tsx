@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react'
 import Bear from './Bear'
-import EmotionNetwork from './EmotionNetwork'
+import EmotionInsights from './EmotionInsights'
+import './chat.css'
 import Landing from './Landing'
 import { askAssistant, isDemo, summarizeHandoff } from './api'
 import CaseNoteFields from './CaseNoteView'
@@ -330,6 +331,8 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   const timing = useRef<{ start: number; replied?: number } | null>(null)
   const [latency, setLatency] = useState<{ answer: number; voice: number } | null>(null)
   const [camHidden, setCamHidden] = useState(false)
+  const [chatView, setChatView] = useState<'conversation' | 'map'>('conversation')
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const sessionId = useRef(crypto.randomUUID()).current
   const stopListening = useRef(() => {})
   const micOn = useRef(false) // a listening session is live (status can show 'speaking' or 'thinking' meanwhile)
@@ -553,6 +556,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   }
 
   function requestHandoff() {
+    setChatView('conversation')
     setOfferHandoff(false)
     setAskConfirm(false)
     setConsentOpen(true)
@@ -594,9 +598,8 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   const latest = estimates.at(-1)
   const withPerson = !!handoff && handoff.status !== 'resolved'
   const voiceOnly = settings.input === 'voice'
-  const speedWord = botTone.speed < 0.97 ? 'slower' : botTone.speed > 1.03 ? 'faster' : 'normal speed'
   const sources = [
-    { label: 'words', probs: latest ? { [latest.label]: latest.confidence } : null },
+    { label: 'final', probs: latest ? { [latest.label]: latest.confidence } : null },
     // Raw 7-label classifier output from the on-device perception service; null while there is no reading.
     { label: 'voice', probs: probsOf(reading?.voice) },
     { label: 'face', probs: probsOf(reading?.face) },
@@ -618,14 +621,16 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
       }[status]
 
   return (
-    <div className="chat">
+    <div className="chat" data-view={chatView}>
       <header className="chat-top">
-        <div className="row" style={{ gap: 12 }}>
-          <span className="wordmark">EQ.ai</span>
-          <span className="muted">{topic.label}</span>
-          {isDemo && <span className="badge">Demo mode</span>}
+        <div className="chat-brand"><span className="wordmark">EQ.ai</span><span className="chat-brand-divider" />
+          <div><h1>{topic.label}</h1><p>Student support{isDemo ? ' · Demo mode' : ''}</p></div>
         </div>
-        <div className="row" style={{ gap: 12 }}>
+        <div className="chat-actions">
+          <button type="button" className="btn btn-outline btn-small" aria-expanded={settingsOpen} aria-controls="chat-settings" onClick={() => setSettingsOpen(!settingsOpen)}>Chat settings</button>
+          {!withPerson && !consentOpen && <button className="btn btn-secondary btn-small" onClick={requestHandoff}>Talk to a person <span aria-hidden="true">↗</span></button>}
+        </div>
+        <div className="chat-settings" id="chat-settings" hidden={!settingsOpen}>
           <IOChoice
             label="Talk"
             value={settings.input}
@@ -656,47 +661,30 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           >
             {settings.camera ? 'Camera on' : 'Camera off'}
           </button>
-          {!withPerson && !consentOpen && (
-            <button className="btn btn-outline btn-small" onClick={requestHandoff}>
-              Talk to a person
-            </button>
-          )}
+
+          <p>Camera is optional. You can use text at any time.</p>
         </div>
       </header>
-
+      <div className="chat-view-switch" role="group" aria-label="Chat views">
+        <button type="button" aria-pressed={chatView === 'conversation'} aria-controls="conversation-panel" onClick={() => setChatView('conversation')}>Conversation</button>
+        <button type="button" aria-pressed={chatView === 'map'} aria-controls="emotion-panel" onClick={() => setChatView('map')}>Emotion map</button>
+      </div>
       <div className="chat-body">
-      <div className="chat-col">
-      <section className="stage-wrap">
-        <div className="stage">
-          <Bear expression={expression} speaking={status === 'speaking'} listening={status === 'listening'} />
-        </div>
-        <p className="status" aria-live="polite">
-          {statusText}
-        </p>
-        {!withPerson && (
-          <div className="tones">
-            <span className="tone-chip">
-              <span className="swatch swatch-you" aria-hidden="true" />
-              You (estimate): <strong>{latest ? `${latest.label} ${Math.round(latest.confidence * 100)}%` : 'not yet'}</strong>
-            </span>
-            <span className="tone-chip">
-              <span className="swatch swatch-bear" aria-hidden="true" />
-              Bear: <strong>{botTone.emotion}</strong> voice, {speedWord}
-            </span>
+      <div className="chat-col" id="conversation-panel">
+        <section className="stage-wrap" aria-label="Assistant status">
+          <div className="stage"><Bear expression={expression} speaking={status === 'speaking'} listening={status === 'listening'} /></div>
+          <div className="assistant-presence">
+            <h2>{withPerson ? 'Your advisor conversation' : 'A little clarity, together.'}</h2>
+            <p className="status" aria-live="polite"><span className={`presence-dot presence-${status}`} aria-hidden="true" />{statusText}</p>
           </div>
-        )}
-        {notice && (
-          <p className="note" role="alert">
-            {notice}
-          </p>
-        )}
-      </section>
-
-      <main className="chat-main">
-        <div className="messages" aria-live="polite">
+          <span className="session-note">One step at a time</span>
+        </section>
+        {notice && <p className="chat-notice note" role="alert">{notice}</p>}
+      <main className="chat-main" aria-label="Conversation">
+        <div className="messages" role="log" aria-label="Messages" aria-live="polite" aria-relevant="additions text">
           {msgs.map((m, i) => (
             <div key={i} className={`msg msg-${m.from}`}>
-              {m.from === 'staff' && <small style={{ marginTop: 0, marginBottom: 4 }}>{handoff?.staff_id ?? 'Advisor'}</small>}
+              {m.from !== 'system' && <span className="message-author">{m.from === 'student' ? 'You' : m.from === 'staff' ? handoff?.staff_id ?? 'Advisor' : 'EQ.ai'}</span>}
               {m.text}
               {!!m.citations?.length && (
                 <small>
@@ -789,51 +777,9 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         )}
         <div ref={endRef} />
       </main>
-      </div>
-
-      <aside className="insight" aria-label="Emotion map">
-        <p className="eyebrow">Emotion map</p>
-        <EmotionNetwork sources={sources} bot={botTone.emotion} />
-        <div className="net-legend">
-          <span>
-            <span className="swatch swatch-you" aria-hidden="true" /> You (estimate)
-          </span>
-          <span>
-            <span className="swatch swatch-bear" aria-hidden="true" /> Bear's voice
-          </span>
-        </div>
-        <p className="muted">
-          Left to right: unpleasant to pleasant. Bottom to top: low to high energy (valence and arousal, placed roughly after
-          Russell's circumplex). Brighter means more likely. Ring nodes are blends that light up only when both parts show up.
-        </p>
-        <p className="muted">
-          Reading from: <strong>{sources.filter((s) => s.probs).map((s) => s.label).join(', ') || 'nothing yet'}</strong>
-        </p>
-        <p className="muted">
-          EQ.ai emotion service:{' '}
-          <strong>{!perceptionOn ? 'not configured' : perceptionLive ? 'connected' : 'not connected'}</strong>
-        </p>
-        {latency && (
-          <p className="muted">
-            Last reply: <strong>{((latency.answer + latency.voice) / 1000).toFixed(1)} s</strong> after your words were ready
-            (answer {(latency.answer / 1000).toFixed(1)} s · voice {(latency.voice / 1000).toFixed(1)} s)
-          </p>
-        )}
-        {estimates.length > 0 && (
-          <div className="history">
-            <p className="eyebrow">This chat</p>
-            <span className="timeline">
-              {estimates.map((e, i) => (
-                <span key={i} className={`dot dot-${e.label}`} title={`${e.label} ${Math.round(e.confidence * 100)}%`} />
-              ))}
-            </span>
-          </div>
-        )}
-      </aside>
-      </div>
-
       <form
         className={`composer${voiceOnly ? ' composer-voice' : ''}`}
+        aria-label="Send a message"
         onSubmit={(e: FormEvent) => {
           e.preventDefault()
           send(draft)
@@ -853,6 +799,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           <button
             type="button"
             className="mic"
+            disabled={status === 'thinking'}
             aria-pressed={status === 'listening'}
             aria-label={status === 'listening' ? 'Stop listening and send' : 'Talk'}
             onPointerDown={pressMic}
@@ -870,17 +817,34 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         {voiceOnly ? (
           <p className="muted">
             {status !== 'listening'
-              ? 'Tap to talk, or hold and let go to send · switch Talk to Text to type'
+              ? 'Tap to talk, or hold and release to send'
               : holding
                 ? 'Let go to send'
                 : 'Tap again to send now'}
           </p>
         ) : (
-          <button className="btn btn-secondary" disabled={!draft.trim()}>
-            Send
+          <button className="btn btn-primary" disabled={!draft.trim() || status === 'thinking'}>
+            Send <span aria-hidden="true">↑</span>
           </button>
         )}
+        {voiceOnly && <button type="button" className="composer-type" onClick={() => { stopListening.current(); update({ input: 'text' }) }}>Type instead</button>}
+        {!voiceOnly && <p className="composer-note">You’re in control. Correct an estimate or ask for a person at any time.</p>}
       </form>
+      </div>
+      <aside className="insight" id="emotion-panel" aria-labelledby="emotion-title">
+        <EmotionInsights sources={sources} estimates={estimates} tone={botTone}
+          cameraOn={!!settings.camera} voiceOn={settings.input === 'voice'}
+          service={!perceptionOn ? 'unconfigured' : perceptionLive ? 'connected' : 'disconnected'}
+          demo={isDemo} withPerson={withPerson} face={reading?.face ?? null} voice={reading?.voice ?? null} />
+        {latency && (
+          <p className="muted">
+            Last reply: <strong>{((latency.answer + latency.voice) / 1000).toFixed(1)} s</strong> after your words were ready
+            (answer {(latency.answer / 1000).toFixed(1)} s · voice {(latency.voice / 1000).toFixed(1)} s)
+          </p>
+        )}
+
+      </aside>
+      </div>
 
       {settings.camera && (
         <div
