@@ -1,0 +1,5 @@
+anthropic>=2.3
+fastapi
+uvicorn
+pydantic>=2
+httpx  # tests (fastapi TestClient)
