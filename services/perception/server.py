@@ -5,7 +5,7 @@ student's face, runs the face and voice classifiers, smooths the results, sends 
 back about once a second, and posts labels (never media) to the dialogue service.
 
 Run from the repo root:
-  .venv/Scripts/uvicorn services.perception.server:create_app --factory --host 0.0.0.0 --port 8001
+  .venv/Scripts/uvicorn services.perception.server:create_app --factory --host 0.0.0.0 --port 8001 --env-file .env
 Env: DIALOGUE_URL (default http://localhost:8000), ALLOWED_ORIGINS, PERCEPTION_MODELS.
 """
 

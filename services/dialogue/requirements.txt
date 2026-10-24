@@ -1,5 +1,6 @@
 anthropic>=2.3
 fastapi
 uvicorn
+python-dotenv  # lets uvicorn --env-file .env load the keys
 pydantic>=2
 httpx  # tests (fastapi TestClient)

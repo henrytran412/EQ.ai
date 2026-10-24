@@ -1,7 +1,7 @@
 """Dialogue HTTP service: POST /chat for the student web app, POST /signals for the Jetson.
 
 Run from the repo root:
-  .venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000
+  .venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000 --env-file .env
 Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_EFFORT, ALLOWED_ORIGINS, CAMPUS_COUNSELING,
      CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_STT_MODEL, CHAT_LIMIT, TOKEN_LIMIT ("hits/seconds").
 Public use: bind to 127.0.0.1 behind the Cloudflare tunnel, which sets CF-Connecting-IP.
