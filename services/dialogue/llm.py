@@ -59,6 +59,36 @@ SCHEMA = {
 }
 
 
+SUMMARY_SYSTEM = """You write the handoff note an SJSU advisor reads before helping a student who asked to talk \
+to a person, so the student doesn't have to explain everything again.
+
+Use only what the conversation says. Never add facts, amounts, or deadlines that are not in it.
+- problem: one or two plain sentences on what the student needs help with.
+- deadline: the deadline as the student stated it, or null if they didn't mention one.
+- tried: short items for what the student already did or was told in this chat (empty if nothing).
+- next_step: one sentence on what the advisor should check or do first.
+Write in plain English for staff. Do not describe or guess the student's emotions."""
+
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["problem", "deadline", "tried", "next_step"],
+    "properties": {
+        "problem": {"type": "string"},
+        "deadline": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "tried": {"type": "array", "items": {"type": "string"}},
+        "next_step": {"type": "string"},
+    },
+}
+
+
+class HandoffSummary(BaseModel):
+    problem: str
+    deadline: str | None
+    tried: list[str]
+    next_step: str
+
+
 class ModelTurn(BaseModel):
     state: str
     confidence: float
@@ -81,15 +111,25 @@ class ClaudeDialogue:
                  effort: str | None = None):
         self.client = client or anthropic.Anthropic(timeout=20.0, max_retries=1)
         self.model = model or os.environ.get("CLAUDE_MODEL") or "claude-opus-5-5"
-        self.effort = effort or os.environ.get("CLAUDE_EFFORT") or "low"  # low: short replies, lower latency
+        # low: short replies, lower latency. Not CLAUDE_EFFORT: Claude Code exports that one into shells.
+        self.effort = effort or os.environ.get("DIALOGUE_EFFORT") or "low"
 
     def respond(self, request, passages: list[Passage], signals: dict | None) -> ModelTurn | None:
+        return self._call(SYSTEM, build_turn_message(request, passages, signals), SCHEMA, ModelTurn)
+
+    def summarize(self, topic: str, history) -> HandoffSummary | None:
+        """Advisor's handoff note from the conversation only (no emotion signals: staff see those only with consent)."""
+        convo = "\n".join(f"{t.role}: {t.text}" for t in history)
+        return self._call(SUMMARY_SYSTEM, f"TOPIC: {topic}\n\nCONVERSATION:\n{convo}", SUMMARY_SCHEMA, HandoffSummary)
+
+    def _call(self, system: str, content: str, schema: dict, out: type[BaseModel]):
+        """One structured-output request; None on API errors, refusals, truncation or unparseable output."""
         params = dict(
             model=self.model,
             max_tokens=4000,
-            system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": build_turn_message(request, passages, signals)}],
-            output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": SCHEMA}},
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": content}],
+            output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": schema}},
         )
         try:
             if self.model in FALLBACK_MODELS:
@@ -109,7 +149,7 @@ class ClaudeDialogue:
             return None
         text = next((b.text for b in response.content if b.type == "text"), "")
         try:
-            return ModelTurn.model_validate_json(text)
+            return out.model_validate_json(text)
         except ValueError:
             log.error("unparseable model output (request %s)", response._request_id)
             return None

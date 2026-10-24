@@ -1,8 +1,8 @@
-"""Dialogue HTTP service: POST /chat for the student web app, POST /signals for the Jetson.
+"""Dialogue HTTP service: POST /chat and /handoff for the student web app, POST /signals for the Jetson.
 
 Run from the repo root:
   .venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000 --env-file .env
-Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_EFFORT, ALLOWED_ORIGINS, CAMPUS_COUNSELING,
+Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, DIALOGUE_EFFORT, ALLOWED_ORIGINS, CAMPUS_COUNSELING,
      CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_TTS_MODEL, CARTESIA_STT_MODEL, CHAT_LIMIT, TOKEN_LIMIT ("hits/seconds").
 Public use: bind to 127.0.0.1 behind the Cloudflare tunnel, which sets CF-Connecting-IP.
 """
@@ -81,6 +81,9 @@ def env_limit(name: str, default: str) -> tuple[int, float]:
     return int(hits), float(seconds)
 
 
+Topic = Literal["financial_aid_hold", "scholarships", "visa_status", "other"]
+
+
 class Turn(BaseModel):
     role: Literal["student", "assistant"]
     text: str = Field(max_length=4000)
@@ -88,7 +91,7 @@ class Turn(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=100)
-    topic: Literal["financial_aid_hold", "scholarships", "visa_status", "other"]
+    topic: Topic
     text: str = Field(max_length=4000)
     history: list[Turn] = Field(default_factory=list, max_length=40)
     awaiting_confirmation: bool = False
@@ -99,6 +102,12 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("text is empty")
         return v.strip()
+
+
+class HandoffRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=100)
+    topic: Topic
+    history: list[Turn] = Field(default_factory=list, max_length=40)
 
 
 class Reading(BaseModel):
@@ -169,6 +178,24 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
     def post_signals(body: Signals):
         signals[body.session_id] = (time.time(), body.model_dump(exclude={"session_id"}))
         return Response(status_code=204)
+
+    @app.post("/handoff")
+    def handoff(req: HandoffRequest, request: Request):
+        """The advisor's note: Claude summarizes the conversation, or the student's own words if that fails."""
+        check_rate(chat_rl, request)
+        said = [t.text for t in req.history if t.role == "student"]
+        summary = None
+        if said:
+            try:
+                summary = model.summarize(req.topic, req.history)
+            except Exception:  # noqa: BLE001 - the handoff must go through even without Claude
+                log.exception("handoff summary failed")
+        if summary is None:
+            return {"source": "fallback",
+                    "summary": {"problem": " / ".join(said[-4:]) or "The student hasn't described the problem yet.",
+                                "deadline": None, "tried": [],
+                                "next_step": "Read the student's messages and follow up with them."}}
+        return {"source": "claude", "summary": summary.model_dump()}
 
     @app.post("/chat")
     def chat(req: ChatRequest, request: Request):
