@@ -8,7 +8,7 @@ import { publish, subscribe, type Handoff } from './handoff'
 import { connectPerception, perceptionOn, streamFrames, type Estimate, type Reading } from './perception'
 import { TOPICS, type ChatResponse, type EmotionEstimate, type Expression } from './policy'
 import type { Tone } from './cartesia'
-import { canListen, cartesiaVoice, listen, speak, stopSpeaking } from './speech'
+import { canListen, cartesiaVoice, listen, speak, stopSpeaking, unlockAudio } from './speech'
 
 type IO = 'voice' | 'text'
 type Settings = {
@@ -34,7 +34,8 @@ async function setCamera(on: boolean, current: MediaStream | null, update: Updat
     if (!on) return ''
     for (let attempt = 0; ; attempt++) {
       try {
-        update({ camera: await navigator.mediaDevices.getUserMedia({ video: camId ? { deviceId: { exact: camId } } : true }) })
+        // A preferred (not exact) id: if that camera is gone, the browser uses another one instead of failing.
+        update({ camera: await navigator.mediaDevices.getUserMedia({ video: camId ? { deviceId: camId } : true }) })
         return ''
       } catch (e) {
         if ((e as DOMException).name === 'NotAllowedError')
@@ -164,18 +165,22 @@ function Setup({ settings, update, onStart }: { settings: Settings; update: Upda
 
   // Browsers hide device names until the site has mic/camera permission.
   async function showNames() {
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-      s.getTracks().forEach((t) => t.stop())
-    } catch {}
+    // Separately, so a computer without a webcam still gets its microphone names.
+    for (const kind of [{ audio: true }, { video: true }]) {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia(kind)
+        s.getTracks().forEach((t) => t.stop())
+      } catch {}
+    }
     loadDevices()
   }
 
   async function start() {
+    unlockAudio() // inside the click: phones only allow sound that starts from a tap
     if (settings.input === 'voice') {
       try {
         // Ask for the mic now so the browser prompt appears on a clear user action.
-        const s = await navigator.mediaDevices.getUserMedia({ audio: settings.micId ? { deviceId: { exact: settings.micId } } : true })
+        const s = await navigator.mediaDevices.getUserMedia({ audio: settings.micId ? { deviceId: settings.micId } : true })
         s.getTracks().forEach((t) => t.stop())
       } catch {
         update({ input: 'text' })
@@ -295,6 +300,9 @@ type Msg = {
 }
 type Status = 'idle' | 'listening' | 'thinking' | 'speaking'
 
+const VOICE_NOTE = "While you talk, your voice goes to Cartesia to become text, and to EQ.ai's own emotion computer. EQ.ai doesn't store it."
+const CAMERA_NOTE = "Camera frames go only to EQ.ai's own emotion computer, are analyzed live, and are never stored."
+
 const probsOf = (e: Estimate | null | undefined) =>
   !e ? null : Object.keys(e.probs).length ? e.probs : { [e.label]: e.confidence }
 
@@ -324,6 +332,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   const [camHidden, setCamHidden] = useState(false)
   const sessionId = useRef(crypto.randomUUID()).current
   const stopListening = useRef(() => {})
+  const micOn = useRef(false) // a listening session is live (status can show 'speaking' or 'thinking' meanwhile)
   const press = useRef<{ at: number; wasListening: boolean } | null>(null)
   const camPos = useRef({ x: 0, y: 0 })
   const camDrag = useRef<{ dx: number; dy: number; minX: number; maxX: number; minY: number; maxY: number } | null>(null)
@@ -382,7 +391,11 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
 
   useEffect(() => {
     if (!perceptionOn) return
-    const c = connectPerception(sessionId, setReading, setPerceptionLive)
+    // A dropped link clears the last reading, so the map never shows a stale estimate as live.
+    const c = connectPerception(sessionId, setReading, (open) => {
+      setPerceptionLive(open)
+      if (!open) setReading(null)
+    })
     perception.current = c
     return () => c.close()
   }, [])
@@ -443,10 +456,12 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     setExpression('thinking')
     setAskConfirm(false)
     setOfferHandoff(false)
-    timing.current = { start: performance.now() }
+    unlockAudio() // a Send tap counts as the user action phones need before sound
+    const t: { start: number; replied?: number } = { start: performance.now() }
+    timing.current = t
     try {
       const res = await askAssistant({ session_id: sessionId, topic: topic.id, text, history, awaiting_confirmation: askConfirm })
-      timing.current.replied = performance.now()
+      t.replied = performance.now()
       // Confidence 0 means Claude didn't answer (fallback reply): there is no estimate to show.
       if (res.tone.confidence > 0) setEstimates((e) => [...e, { label: res.tone.state, confidence: res.tone.confidence }])
       setBotTone(res.tone.tts_params)
@@ -457,14 +472,22 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         citations: res.reply.citations,
         uncertainty: res.reply.uncertainty,
       })
-    } catch {
-      say("Sorry, I couldn't reach the assistant just now. You can try again, or talk to a person.", 'concerned')
+    } catch (e) {
+      say(
+        e instanceof Error && e.message === 'busy'
+          ? 'Lots of people are using EQ.ai right now. Please wait a few minutes, or talk to a person.'
+          : "Sorry, I couldn't reach the assistant just now. You can try again, or talk to a person.",
+        'concerned',
+      )
       setOfferHandoff(true)
     }
   }
 
   function toggleMic() {
-    if (status === 'listening') return stopListening.current() // sends what was heard so far
+    if (micOn.current) return stopListening.current() // sends what was heard so far
+    if (status === 'thinking') return // one question at a time: the answer is on its way
+    unlockAudio()
+    micOn.current = true
     stopSpeaking()
     setNotice('')
     setInterim('')
@@ -476,6 +499,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         onInterim: setInterim,
         onFinal: (t) => live.current.send(t),
         onEnd: (error) => {
+          micOn.current = false
           setReading((r) => r && { ...r, voice: null })
           setInterim('')
           if (error) setNotice(error)
@@ -492,9 +516,9 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   function pressMic(e: PointerEvent<HTMLButtonElement>) {
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
-    press.current = { at: e.timeStamp, wasListening: status === 'listening' }
+    press.current = { at: e.timeStamp, wasListening: micOn.current }
     setHolding(true)
-    if (status !== 'listening') toggleMic()
+    if (!micOn.current) toggleMic()
   }
   function releaseMic(e: PointerEvent<HTMLButtonElement>) {
     const p = press.current
@@ -561,7 +585,10 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     const { note, source } = await summarizeHandoff({ session_id: sessionId, topic: topic.id, history })
     const h = live.current.handoff
     if (h?.id === id) updateHandoff({ ...h, summary: note.problem, note, note_source: source })
-    say("Done. I sent this summary to an SJSU advisor, so you won't have to explain it again.", 'happy')
+    say(
+      "Here's a summary for an SJSU advisor, so you won't have to explain it again. This demo doesn't send it to SJSU yet, so please share it with the office.",
+      'happy',
+    )
   }
 
   const latest = estimates.at(-1)
@@ -577,7 +604,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   const face = reading?.face
   const statusText = handoff && withPerson
     ? handoff.status === 'waiting'
-      ? 'Waiting for a person to join…'
+      ? 'Summary ready for an advisor (demo: not sent to SJSU staff)'
       : `You're chatting with ${handoff.staff_id ?? 'an advisor'}`
     : {
         idle: voiceOnly ? 'Tap the mic to talk' : 'Type your message below',
@@ -604,7 +631,8 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
             value={settings.input}
             onChange={(input) => {
               stopListening.current()
-              setNotice('')
+              // The setup-screen disclosure may have been skipped by starting in Text mode.
+              setNotice(input === 'voice' && cartesiaVoice ? VOICE_NOTE : '')
               update({ input })
             }}
             voiceDisabled={!canListen}
@@ -620,11 +648,15 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           <button
             className="btn btn-outline btn-small"
             aria-pressed={!!settings.camera}
-            onClick={async () => setNotice(await setCamera(!settings.camera, settings.camera, update, settings.camId))}
+            onClick={async () => {
+              const turningOn = !settings.camera
+              const error = await setCamera(turningOn, settings.camera, update, settings.camId)
+              setNotice(error || (turningOn ? CAMERA_NOTE : ''))
+            }}
           >
             {settings.camera ? 'Camera on' : 'Camera off'}
           </button>
-          {!handoff && !consentOpen && (
+          {!withPerson && !consentOpen && (
             <button className="btn btn-outline btn-small" onClick={requestHandoff}>
               Talk to a person
             </button>
@@ -679,7 +711,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
               {m.uncertainty && <small>{m.uncertainty}</small>}
             </div>
           ))}
-          {interim && <div className="msg msg-student msg-interim">{interim}</div>}
+          {interim && <div className="msg msg-student msg-interim" aria-hidden="true">{interim}</div>}
         </div>
 
         {askConfirm && (
@@ -703,7 +735,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           </div>
         )}
 
-        {offerHandoff && !consentOpen && !handoff && (
+        {offerHandoff && !consentOpen && !withPerson && (
           <div className="chips">
             <button className="btn btn-secondary btn-small" onClick={requestHandoff}>
               Connect me with a person
@@ -742,7 +774,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         )}
         {handoff && (
           <section className="card panel case" aria-live="polite" aria-label="Handoff summary">
-            <p className="eyebrow">What the SJSU advisor sees</p>
+            <p className="eyebrow">What an SJSU advisor would see</p>
             <strong>
               {handoff.student_name} · {handoff.topic}
             </strong>
@@ -812,7 +844,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
             className="input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder={withPerson ? 'Message the advisor' : 'Type a message'}
+            placeholder={withPerson ? (handoff?.status === 'active' ? 'Message the advisor' : 'Add a note for the advisor') : 'Type a message'}
             aria-label="Message"
             maxLength={1000}
           />

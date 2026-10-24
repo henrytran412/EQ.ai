@@ -14,6 +14,7 @@ export async function askAssistant(req: ChatRequest): Promise<ChatResponse> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   })
+  if (res.status === 429) throw new Error('busy') // per-visitor limit: shown as 'wait a few minutes'
   if (!res.ok) throw new Error(`chat API ${res.status}`)
   return normalizeResponse(await res.json())
 }

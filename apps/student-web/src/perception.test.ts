@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { AUDIO, pack, parseReading } from './perception.ts'
+import { AUDIO, connectPerception, pack, parseReading } from './perception.ts'
 
 test('pack prefixes the type byte', () => {
   const out = pack(AUDIO, new Float32Array([0.5]).buffer)
@@ -23,4 +23,39 @@ test('parseReading keeps well-formed readings and drops junk', () => {
   assert.equal(parseReading('not json'), null)
   assert.equal(parseReading(JSON.stringify({ type: 'other' })), null)
   assert.equal(parseReading(JSON.stringify({ type: 'reading', face: { label: 5 }, voice: {} }))?.face, null)
+})
+
+test('the perception socket reconnects after a drop, but not after close()', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const sockets: FakeSocket[] = []
+  class FakeSocket {
+    static OPEN = 1
+    readyState = 0
+    binaryType = ''
+    onopen: (() => void) | null = null
+    onclose: (() => void) | null = null
+    onmessage: ((e: unknown) => void) | null = null
+    constructor() {
+      sockets.push(this)
+    }
+    send() {}
+    close() {
+      this.onclose?.()
+    }
+  }
+  const real = globalThis.WebSocket
+  ;(globalThis as any).WebSocket = FakeSocket
+  try {
+    const statuses: boolean[] = []
+    const c = connectPerception('s1', () => {}, (open) => statuses.push(open))
+    sockets[0].onclose?.() // the network dropped it
+    t.mock.timers.tick(3000)
+    assert.equal(sockets.length, 2)
+    c.close()
+    t.mock.timers.tick(10_000)
+    assert.equal(sockets.length, 2) // closed on purpose: no reconnect
+    assert.deepEqual(statuses, [false, false])
+  } finally {
+    ;(globalThis as any).WebSocket = real
+  }
 })

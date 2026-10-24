@@ -31,7 +31,7 @@ const FATAL: Record<string, string> = {
   network: "Speech recognition couldn't reach its service. Try Chrome, or switch Talk to Text.",
   'language-not-supported': 'Speech recognition does not support this language here.',
 }
-const MIC_BLOCKED = "Couldn't open the microphone. Allow it from the icon in the address bar, or pick another one in setup."
+const MIC_BLOCKED = "Couldn't open the microphone. Allow it from the icon in the address bar, or switch Talk to Text."
 const MAX_LISTEN_MS = 60_000 // safety stop if no end of turn is ever detected (constant background noise)
 
 type Handlers = { onInterim: (text: string) => void; onFinal: (text: string) => void; onEnd: (error?: string) => void }
@@ -69,23 +69,30 @@ function listenCartesia({ onInterim, onFinal, onEnd }: Handlers, mic: Mic, held:
   // Stop: no more mic audio; Cartesia transcribes what it has buffered, then closes the socket (or 4 s pass).
   const finish = () => {
     if (state !== 'listening') return
+    stopMic() // first, while still listening: it sends the last partial chunk (the end of the last word)
     state = 'closing'
-    stopMic()
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'close' }))
-    else if (ws?.readyState !== WebSocket.CONNECTING) return deliver() // still connecting: onopen sends close
-    closeTimer = setTimeout(deliver, 4000)
+    else if (ws && ws.readyState !== WebSocket.CONNECTING) return deliver() // socket already gone
+    closeTimer = setTimeout(deliver, 4000) // no socket yet (token loading) or connecting: onopen sends close
   }
   let closeTimer: ReturnType<typeof setTimeout> | undefined
   let noSpeech = setTimeout(() => !held() && finish(), noSpeechMs)
   const maxTimer = setTimeout(finish, MAX_LISTEN_MS)
 
-  streamMic(mic.micId, (tag, payload) => {
-    mic.onAudio?.(tag, payload)
-    if (state !== 'listening') return
-    const pcm = toPcm16(new Float32Array(payload))
-    if (ws?.readyState === WebSocket.OPEN) ws.send(pcm)
-    else queued.push(pcm)
-  }).then(
+  streamMic(
+    mic.micId,
+    (tag, payload) => {
+      mic.onAudio?.(tag, payload)
+      if (state !== 'listening') return
+      const pcm = toPcm16(new Float32Array(payload))
+      if (ws?.readyState === WebSocket.OPEN) ws.send(pcm)
+      else queued.push(pcm)
+    },
+    () => {
+      error = 'The microphone disconnected. Tap Talk to use another one, or switch Talk to Text.'
+      finish() // e.g. a Bluetooth headset turned off: send what was heard instead of waiting
+    },
+  ).then(
     (stop) => (state === 'listening' ? (stopMic = stop) : stop()),
     () => {
       error = MIC_BLOCKED
@@ -205,6 +212,14 @@ function listenBrowser({ onInterim, onFinal, onEnd }: Handlers, mic: Mic, held: 
 let player: AudioContext | null = null
 let stopCurrent = () => {}
 
+// Call inside a tap or click: phones (iOS Safari) only let audio start from a user action, and the bear's reply
+// arrives later, outside any tap. Creating and resuming the context here makes later playback allowed.
+export function unlockAudio() {
+  if (!cartesiaVoice) return
+  player ??= new AudioContext()
+  void player.resume()
+}
+
 // Speaks `text`; onStart when sound begins, onEnd when it finishes or is stopped. If Cartesia can't speak this
 // reply, the browser voice reads it instead, so the student always hears an answer.
 export function speak(text: string, tone: Tone, onStart: () => void, onEnd: () => void) {
@@ -246,7 +261,7 @@ export function speak(text: string, tone: Tone, onStart: () => void, onEnd: () =
   voiceConfig(API_URL).then((cfg) => {
     if (over) return
     const rate = cfg.tts.output_format.sample_rate
-    const ctx = (player ??= new AudioContext({ sampleRate: rate }))
+    const ctx = (player ??= new AudioContext()) // buffers keep Cartesia's 24 kHz; the browser resamples on playback
     void ctx.resume()
     const socket = new WebSocket(ttsUrl(cfg))
     ws = socket
@@ -285,6 +300,7 @@ export function speak(text: string, tone: Tone, onStart: () => void, onEnd: () =
 }
 
 function speakBrowser(text: string, rate: number, onStart: () => void, onEnd: () => void) {
+  if (!globalThis.speechSynthesis) return onEnd() // some in-app browsers have no speech: the reply stays as text
   speechSynthesis.cancel()
   const u = new SpeechSynthesisUtterance(text)
   u.rate = rate
@@ -297,5 +313,5 @@ function speakBrowser(text: string, rate: number, onStart: () => void, onEnd: ()
 export function stopSpeaking() {
   stopCurrent()
   stopCurrent = () => {}
-  speechSynthesis.cancel()
+  globalThis.speechSynthesis?.cancel()
 }

@@ -216,6 +216,8 @@ p { margin: 0; }
 .stage-wrap { display: grid; justify-items: center; gap: 8px; padding: 16px 16px 8px; }
 .stage { width: min(300px, 32dvh, 70vw); }
 .chat-main { overflow-y: auto; display: grid; justify-items: center; align-content: start; gap: 16px; padding: 8px clamp(16px, 3vw, 32px) 24px; }
+/* Phones: scroll the bear and the messages together, so replies, the consent panel and the case note get full height. */
+@media (max-width: 1023px) { .chat-col { overflow-y: auto; grid-template-rows: auto auto; align-content: start; } .chat-main { overflow: visible; } }
 .status { font-size: 14px; color: var(--stone); min-height: 20px; }
 .badge { font-size: 12px; font-weight: 600; color: var(--clay); background: #f1e3d3; border-radius: var(--r-full); padding: 4px 10px; }
 

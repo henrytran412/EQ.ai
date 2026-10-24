@@ -43,20 +43,34 @@ export function parseReading(text: string): Reading | null {
   return { face: face && { ...face, box }, voice: estimate(d.voice) }
 }
 
+// Reconnects every 3 s after a drop (service restart, network blip), with the same session id.
 export function connectPerception(sessionId: string, onReading: (r: Reading) => void, onStatus: (open: boolean) => void) {
-  // shortcut: no auto-reconnect; reload the page if the perception service restarts.
-  const ws = new WebSocket(`${WS_URL}/ws/${encodeURIComponent(sessionId)}`)
-  ws.binaryType = 'arraybuffer'
-  ws.onopen = () => onStatus(true)
-  ws.onclose = () => onStatus(false)
-  ws.onmessage = (e) => {
-    const r = typeof e.data === 'string' ? parseReading(e.data) : null
-    if (r) onReading(r)
+  let ws: WebSocket
+  let closed = false
+  let retry: ReturnType<typeof setTimeout> | undefined
+  const open = () => {
+    ws = new WebSocket(`${WS_URL}/ws/${encodeURIComponent(sessionId)}`)
+    ws.binaryType = 'arraybuffer'
+    ws.onopen = () => onStatus(true)
+    ws.onclose = () => {
+      onStatus(false)
+      if (!closed) retry = setTimeout(open, 3000)
+    }
+    ws.onmessage = (e) => {
+      const r = typeof e.data === 'string' ? parseReading(e.data) : null
+      if (r) onReading(r)
+    }
   }
+  open()
   const send = (tag: number, payload: ArrayBuffer) => {
     if (ws.readyState === WebSocket.OPEN && payload.byteLength > 0) ws.send(pack(tag, payload))
   }
-  return { send, close: () => ws.close() }
+  const close = () => {
+    closed = true
+    clearTimeout(retry)
+    ws.close()
+  }
+  return { send, close }
 }
 
 // Sends one JPEG (≤640 px wide) of the video every `everyMs`. Returns a stop function.
@@ -81,29 +95,45 @@ const WORKLET = `class Tap extends AudioWorkletProcessor {
 }
 registerProcessor('tap', Tap)`
 
-// Captures the chosen mic at 16 kHz mono and sends 250 ms Float32 chunks. Returns a stop function.
-export async function streamMic(micId: string, send: (tag: number, b: ArrayBuffer) => void): Promise<() => void> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: { exact: micId } } : true })
-  const ctx = new AudioContext({ sampleRate: SAMPLE_RATE }) // the browser resamples the mic to 16 kHz
-  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' })))
-  const node = new AudioWorkletNode(ctx, 'tap')
-  let chunk = new Float32Array(CHUNK_SAMPLES)
-  let n = 0
-  node.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
-    for (const sample of data) {
-      chunk[n++] = sample
-      if (n === CHUNK_SAMPLES) {
-        send(AUDIO, chunk.buffer) // typed arrays are little-endian on every browser platform, matching "<f4"
-        chunk = new Float32Array(CHUNK_SAMPLES)
-        n = 0
+// Captures the chosen mic at 16 kHz mono and sends 250 ms Float32 chunks. Returns a stop function that also sends
+// the last partial chunk (the end of the student's last word). `onEnded` fires if the mic disappears mid-capture.
+export async function streamMic(micId: string, send: (tag: number, b: ArrayBuffer) => void, onEnded?: () => void): Promise<() => void> {
+  // A preferred (not exact) id: if a Bluetooth headset disconnected, the browser falls back to another mic.
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: micId ? { deviceId: micId } : true })
+  let ctx: AudioContext | undefined
+  try {
+    ctx = new AudioContext({ sampleRate: SAMPLE_RATE }) // the browser resamples the mic to 16 kHz
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' })))
+    const node = new AudioWorkletNode(ctx, 'tap')
+    let chunk = new Float32Array(CHUNK_SAMPLES)
+    let n = 0
+    node.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
+      for (const sample of data) {
+        chunk[n++] = sample
+        if (n === CHUNK_SAMPLES) {
+          send(AUDIO, chunk.buffer) // typed arrays are little-endian on every browser platform, matching "<f4"
+          chunk = new Float32Array(CHUNK_SAMPLES)
+          n = 0
+        }
       }
     }
-  }
-  ctx.createMediaStreamSource(stream).connect(node)
-  node.connect(ctx.destination) // keeps the node pulled by the audio graph
-  return () => {
-    node.disconnect()
-    void ctx.close()
+    ctx.createMediaStreamSource(stream).connect(node)
+    node.connect(ctx.destination) // keeps the node pulled by the audio graph
+    stream.getAudioTracks()[0]?.addEventListener('ended', () => onEnded?.())
+    const audio = ctx
+    let stopped = false
+    return () => {
+      if (stopped) return
+      stopped = true
+      if (n) send(AUDIO, chunk.slice(0, n).buffer)
+      node.disconnect()
+      void audio.close()
+      stream.getTracks().forEach((t) => t.stop())
+    }
+  } catch (e) {
+    // e.g. a browser that can't connect the mic to a 16 kHz context: release the mic instead of leaving it on
     stream.getTracks().forEach((t) => t.stop())
+    void ctx?.close()
+    throw e
   }
 }

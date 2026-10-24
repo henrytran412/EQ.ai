@@ -80,5 +80,4 @@ With `VITE_API_URL` set, `src/speech.ts` gets a 10-minute Cartesia access token 
 
 - Handoffs: `BroadcastChannel` (same browser only) until the SpacetimeDB `handoffs` table + subscription exists.
 - Handoff summary: the student's last messages until Claude writes one.
-- Perception socket: no auto-reconnect; reload the page if the service restarts.
 - Landing page model results: a static, dated snapshot in `src/trainingResults.ts`; refresh it after a new measured run.
