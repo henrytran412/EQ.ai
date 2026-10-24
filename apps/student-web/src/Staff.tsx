@@ -70,7 +70,7 @@ export default function Staff() {
             </div>
             <div className="card" style={{ padding: 16, display: 'grid', gap: 8 }}>
               <p className="eyebrow">What the student already told EQ.ai</p>
-              {current.note ? <CaseNoteFields note={current.note} /> : <p style={{ fontSize: 16 }}>{current.summary}</p>}
+              {current.note ? <CaseNoteFields note={current.note} source={current.note_source} /> : <p style={{ fontSize: 16 }}>{current.summary}</p>}
               <p className="muted">
                 {current.emotion
                   ? `Emotion estimate, shared by the student: ${current.emotion.label} (${Math.round(current.emotion.confidence * 100)}%)`

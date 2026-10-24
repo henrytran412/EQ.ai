@@ -211,7 +211,8 @@ function Setup({ settings, update, onStart }: { settings: Settings; update: Upda
         <IOChoice label="Replies by" value={settings.output} onChange={(output) => update({ output })} />
         <label className="toggle">
           <input type="checkbox" checked={!!settings.camera} onChange={(e) => toggleCamera(e.target.checked)} />
-          Turn on camera (optional). Video is analyzed on your own devices, never stored, never sent to the cloud.
+          Turn on camera (optional). Video goes only to EQ.ai's own emotion computer (not a cloud service), is analyzed
+          live, and is never stored.
         </label>
         <div className="devices">
           <DeviceSelect
@@ -234,9 +235,13 @@ function Setup({ settings, update, onStart }: { settings: Settings; update: Upda
         {settings.input === 'voice' && cartesiaVoice && (
           <p className="note">
             While you talk, the microphone you pick is sent to Cartesia, a speech service, to turn your words into text,
-            and to our emotion estimate on your own devices. EQ.ai doesn't store your audio. Choose Text if you'd rather not.
+            and to EQ.ai's own emotion computer. EQ.ai doesn't store your audio. Choose Text if you'd rather not.
           </p>
         )}
+        <p className="note">
+          Your messages and the short emotion estimates (like "confused") go to Claude, Anthropic's AI, to write the bear's
+          replies. EQ.ai doesn't keep a copy of your chat.
+        </p>
         {settings.input === 'voice' && !cartesiaVoice && (
           <p className="note">
             Demo mode: voice input uses your browser's speech recognition, which sends your audio to Google, and your
@@ -442,7 +447,8 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     try {
       const res = await askAssistant({ session_id: sessionId, topic: topic.id, text, history, awaiting_confirmation: askConfirm })
       timing.current.replied = performance.now()
-      setEstimates((e) => [...e, { label: res.tone.state, confidence: res.tone.confidence }])
+      // Confidence 0 means Claude didn't answer (fallback reply): there is no estimate to show.
+      if (res.tone.confidence > 0) setEstimates((e) => [...e, { label: res.tone.state, confidence: res.tone.confidence }])
       setBotTone(res.tone.tts_params)
       setAskConfirm(res.tone.ask_confirmation)
       setOfferHandoff(res.behavior.offer_handoff)
@@ -740,7 +746,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
             <strong>
               {handoff.student_name} · {handoff.topic}
             </strong>
-            {handoff.note ? <CaseNoteFields note={handoff.note} /> : <p className="muted">Writing a short summary for the advisor…</p>}
+            {handoff.note ? <CaseNoteFields note={handoff.note} source={handoff.note_source} /> : <p className="muted">Writing a short summary for the advisor…</p>}
             <p className="muted">
               {handoff.emotion
                 ? `Emotion estimate shared with your permission: ${handoff.emotion.label}.`
@@ -772,7 +778,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           Reading from: <strong>{sources.filter((s) => s.probs).map((s) => s.label).join(', ') || 'nothing yet'}</strong>
         </p>
         <p className="muted">
-          On-device emotion service:{' '}
+          EQ.ai emotion service:{' '}
           <strong>{!perceptionOn ? 'not configured' : perceptionLive ? 'connected' : 'not connected'}</strong>
         </p>
         {latency && (
@@ -873,7 +879,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
             </div>
           )}
           <p>
-            Camera on · on-device, never stored
+            Camera on · analyzed by EQ.ai, never stored
             <button type="button" className="cam-btn" onClick={() => setCamHidden((h) => !h)}>
               {camHidden ? 'Show' : 'Hide'}
             </button>
