@@ -46,3 +46,6 @@ models/
 .idea/
 .DS_Store
 Thumbs.db
+
+# copied official pages: regenerate from data/knowledge/sources.txt (not redistributed)
+data/knowledge/pages/
