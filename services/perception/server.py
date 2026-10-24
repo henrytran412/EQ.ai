@@ -39,7 +39,8 @@ def http_poster(url: str) -> Callable[[dict], None]:
 
 
 def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dict], None] | None = None,
-               allowed_origins: list[str] | None = None, min_interval_sec: float = 1.0) -> FastAPI:
+               allowed_origins: list[str] | None = None, min_interval_sec: float = 1.0,
+               min_frame_sec: float = 0.25) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")  # uvicorn hides app logs
     logging.getLogger("httpx").setLevel(logging.WARNING)  # otherwise one line per /signals post
     if detector is None and face is None and voice is None:
@@ -76,6 +77,7 @@ def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dic
         voice_s = EmaSmoother(voice.labels if voice else [], alpha=0.5, timeout_sec=4.0)
         window = AudioWindow(SAMPLE_RATE, voice.window_sec) if voice else None
         previous, box_norm, last_voice, last_emit = None, None, float("-inf"), float("-inf")
+        last_frame = float("-inf")
         try:
             while True:
                 try:
@@ -85,6 +87,9 @@ def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dic
                     return
                 now = time.monotonic()
                 if kind == "video" and face and detector:
+                    if now - last_frame < min_frame_sec:
+                        continue  # faster than the web app ever sends (2/s): drop so one socket can't hog the GPU
+                    last_frame = now
                     result = await run_in_threadpool(classify_frame, payload, previous)
                     if result is None:
                         continue  # undecodable frame: skip it, keep the connection

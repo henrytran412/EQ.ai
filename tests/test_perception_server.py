@@ -35,8 +35,10 @@ class PerceptionServer(unittest.TestCase):
 
         class FakeDetector:
             boxes = [(100, 60, 80, 80)]
+            calls = 0
 
             def detect(self, bgr):
+                self.calls += 1
                 return list(self.boxes)
 
         class FakeFace:
@@ -58,8 +60,11 @@ class PerceptionServer(unittest.TestCase):
         self.detector = FakeDetector()
         app = create_app(detector=self.detector, face=FakeFace(), voice=FakeVoice(),
                          post_signals=lambda body: self.posted.append(body),
-                         allowed_origins=["http://localhost:5173"], min_interval_sec=0)
+                         allowed_origins=["http://localhost:5173"], min_interval_sec=0, min_frame_sec=0)
         self.client = TestClient(app)
+        self.make_app = lambda **kw: TestClient(create_app(
+            detector=self.detector, face=FakeFace(), voice=FakeVoice(), post_signals=lambda body: None,
+            allowed_origins=["http://localhost:5173"], min_interval_sec=0, **kw))
 
     def test_camera_frame_gives_face_reading_with_tracked_box(self):
         with self.client.websocket_connect("/ws/s1", headers=ORIGIN) as ws:
@@ -70,6 +75,14 @@ class PerceptionServer(unittest.TestCase):
         x, y, w, h = reading["face"]["box"]
         self.assertTrue(0 <= x < 1 and 0 <= y < 1 and 0 < w <= 1 and 0 < h <= 1)
         self.assertIsNone(reading["voice"])
+
+    def test_frames_faster_than_the_app_sends_are_dropped(self):
+        client = self.make_app()  # default frame cap; the web app sends one frame every 500 ms
+        with client.websocket_connect("/ws/s1", headers=ORIGIN) as ws:
+            for _ in range(6):
+                ws.send_bytes(jpeg())
+            ws.receive_json()
+        self.assertEqual(self.detector.calls, 1)  # one socket spamming frames can't hog the GPU
 
     def test_three_seconds_of_speech_gives_voice_reading(self):
         with self.client.websocket_connect("/ws/s1", headers=ORIGIN) as ws:

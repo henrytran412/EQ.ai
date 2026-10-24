@@ -134,8 +134,8 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
         model = ClaudeDialogue()
     kb = KnowledgeBase.load(knowledge_dir or REPO / "data" / "knowledge" / "pages")
     origins = allowed_origins or os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
-    chat_rl = RateLimiter(*(chat_limit or env_limit("CHAT_LIMIT", "20/600")))
-    token_rl = RateLimiter(*(token_limit or env_limit("TOKEN_LIMIT", "6/600")))
+    chat_rl = RateLimiter(*(chat_limit or env_limit("CHAT_LIMIT", "60/600")))
+    token_rl = RateLimiter(*(token_limit or env_limit("TOKEN_LIMIT", "30/600")))
     signals: dict[str, tuple[float, dict]] = {}  # shortcut: in-memory, one process; SpacetimeDB replaces this
 
     app = FastAPI(title="EQ.ai dialogue")
