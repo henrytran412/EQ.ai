@@ -1,7 +1,8 @@
 """Build a clean 7-emotion manifest for RAVDESS speech, split by actor.
 
-Reads training/voice/data/RAVDESS/Actor_XX/*.wav and writes
-training/voice/data/manifest.csv. Raw audio is never moved or deleted.
+Reads <audio-dir>/**/Actor_XX/*.wav (default training/voice/data/RAVDESS) and writes a
+manifest whose paths are relative to audio-dir. Raw audio is never moved or deleted.
+A clip found twice (Kaggle's zip stores every clip in two folders) is kept once.
 
 RAVDESS filenames are 7 dash-separated codes:
 modality-vocal_channel-emotion-intensity-statement-repetition-actor.
@@ -42,29 +43,40 @@ def actor_split(actor: int) -> str:
     return "test" if actor in TEST_ACTORS else "val" if actor in VAL_ACTORS else "train"
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--data-dir", type=Path, default=Path(__file__).parent / "voice" / "data")
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-
-    wavs = sorted((args.data_dir / "RAVDESS").rglob("*.wav"))
-    rows, skipped = [], 0
+def build_rows(wavs: list[Path], root: Path) -> tuple[list[dict], int]:
+    """Manifest rows for the kept clips, and how many were skipped as calm or non-speech."""
+    rows, seen, skipped = [], set(), 0
     for wav in wavs:
+        if wav.name in seen:
+            continue
+        seen.add(wav.name)
         info = parse_name(wav.name)
         if info is None:
             skipped += 1
             continue
-        rows.append({"path": wav.relative_to(args.data_dir).as_posix(),
-                     "split": actor_split(info["actor"]), **info})
+        rows.append({"path": wav.relative_to(root).as_posix(), "split": actor_split(info["actor"]), **info})
+    return rows, skipped
 
-    out = args.data_dir / "manifest.csv"
+
+def main() -> None:
+    data_dir = Path(__file__).parent / "voice" / "data"
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--audio-dir", type=Path, default=data_dir / "RAVDESS")
+    parser.add_argument("--out", type=Path, default=data_dir / "manifest.csv")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    wavs = sorted(args.audio_dir.rglob("*.wav"))
+    rows, skipped = build_rows(wavs, args.audio_dir)
+
+    out = args.out
+    out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["path", "split", "label", "actor", "gender", "intensity"])
         writer.writeheader()
         writer.writerows(rows)
 
-    log.info("scanned %d clips, kept %d, skipped %d (calm or not speech) -> %s",
+    log.info("scanned %d files, kept %d clips, skipped %d (calm or not speech) -> %s",
              len(wavs), len(rows), skipped, out)
     for split in ("train", "val", "test"):
         part = [r for r in rows if r["split"] == split]

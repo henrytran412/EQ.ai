@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "training"))
 
 from prepare_face import attach_labels, dedupe  # noqa: E402
-from prepare_voice import actor_split, parse_name  # noqa: E402
+from prepare_voice import actor_split, build_rows, parse_name  # noqa: E402
 
 
 def img(split, key, md5):
@@ -57,6 +57,17 @@ class VoiceCleaning(unittest.TestCase):
         self.assertIsNone(parse_name("03-01-02-01-01-01-01.wav"))  # calm
         self.assertIsNone(parse_name("03-02-03-01-01-01-01.wav"))  # song channel
         self.assertIsNone(parse_name("notes.wav"))
+
+    def test_clip_stored_twice_is_kept_once(self):
+        # Kaggle's RAVDESS zip holds every clip under Actor_XX/ and audio_speech_actors_01-24/Actor_XX/
+        root = Path("ravdess")
+        clip = "03-01-05-02-01-01-12.wav"
+        rows, skipped = build_rows([root / "Actor_12" / clip,
+                                    root / "audio_speech_actors_01-24" / "Actor_12" / clip,
+                                    root / "Actor_12" / "03-01-02-01-01-01-12.wav"], root)
+        self.assertEqual([r["path"] for r in rows], [f"Actor_12/{clip}"])
+        self.assertEqual(rows[0]["split"], "train")
+        self.assertEqual(skipped, 1)  # the calm clip; the duplicate is not counted as skipped
 
     def test_actor_split_never_mixes_speakers(self):
         self.assertEqual({actor_split(a) for a in range(1, 19)}, {"train"})
