@@ -30,11 +30,31 @@ Test per emotion, voice_wavlm (F1 / recall / n):
 |---|---|---|---|---|---|---|
 | 0.849 / 96.9% / 32 | 0.839 / 81.2% / 32 | 0.915 / 84.4% / 32 | 0.821 / 71.9% / 32 | 1.000 / 100% / 16 | 0.889 / 87.5% / 32 | 0.873 / 96.9% / 32 |
 
+### Face baseline on the same split (Kaggle run 4, commit 81658b0)
+
+MobileNetV3-Large (`--model mobilenetv3_large_100`, other settings default). The face manifest was
+byte-identical to run 3's, so both models were tested on the same 2,395 images. The run did all
+30 epochs (no early stop) and the best val was at epoch 24 (EMA weights). Outputs: `training/runs/run4/`.
+
+| Face model | val macro-F1 | test acc / macro-F1 (flip TTA) | shipped ONNX, single view | ONNX size | laptop CPU, 1 image |
+|---|---|---|---|---|---|
+| MobileNetV3-Large (baseline) | 0.742 | 0.737 / 0.724 | 0.732 / 0.718 | 17 MB | 3.3 ms |
+| **ConvNeXt-Tiny** | 0.785 | 0.782 / 0.770 | 0.784 / 0.773 | 111 MB | 35.7 ms |
+| gain | +0.043 | +0.045 / +0.047 | +0.052 / +0.054 | | |
+
+Test F1 per emotion, baseline vs ConvNeXt:
+
+| anger | disgust | fear | happy | neutral | sad | surprise |
+|---|---|---|---|---|---|---|
+| 0.690 vs 0.738 | 0.656 vs 0.701 | 0.733 vs 0.798 | 0.916 vs 0.937 | 0.675 vs 0.722 | 0.650 vs 0.692 | 0.748 vs 0.805 |
+
+ConvNeXt is better on every emotion. The gain is larger than this test set's sampling noise (about
++/-1.7 points at 95% for each model). Timing is onnxruntime on the dev laptop CPU, not on the Jetson.
+
 Limits:
 - Voice test is 208 clips from 4 actors (16-32 per emotion): roughly +/-5 points. RAVDESS is acted
   speech of two fixed sentences; expect lower accuracy on real, accented student speech (not measured).
 - Face labels come from labels.csv (origin undocumented); test measures agreement with those labels.
-- No MobileNetV3 baseline on the new split yet, so the ConvNeXt gain over the baseline is not measured.
 
 ## Kaggle run 1: commit 5c04d79, 2026-10-24, 1x Tesla T4 (old split, superseded)
 
