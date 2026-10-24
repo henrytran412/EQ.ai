@@ -20,7 +20,9 @@ VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "met
 ALWAYS_SKIP = {"script", "style", "noscript", "svg", "nav", "aside", "form", "button", "iframe", "template"}
 OUTSIDE_MAIN_SKIP = {"header", "footer"}
 HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
-BLOCKS = HEADINGS | {"p", "li", "div", "section", "article", "td", "th", "dd", "dt", "blockquote", "pre", "tr", "br"}
+BLOCKS = HEADINGS | {"p", "li", "div", "section", "article", "dd", "dt", "blockquote", "pre", "br"}
+CELLS = {"td", "th"}
+HEADER_MAX = 60  # a first table row whose cells are all this short is read as column labels
 
 
 def check_official(url: str, domain: str) -> None:
@@ -40,6 +42,10 @@ class _MainText(HTMLParser):
         self.stack: list[tuple[str, bool, bool]] = []  # (tag, opens main, skipped)
         self.blocks: list[tuple[str, str]] = []  # (kind, text) with kind in heading/h1/li/p
         self.buffer, self.kind, self.page_title, self.in_title = [], "p", "", False
+        # Tables: one passage per row ("label: value | ..."), so a hold's name stays next to what it means.
+        self.tables: list[dict] = []  # per open table: {"header": labels or None, "rows": count}
+        self.row: list[str] | None = None
+        self.cell: list[str] | None = None
 
     def _in_main(self) -> bool:
         return not self.use_main or any(m for _, m, _ in self.stack)
@@ -53,19 +59,59 @@ class _MainText(HTMLParser):
             self.blocks.append((self.kind, text))
         self.buffer, self.kind = [], "p"
 
+    def _end_cell(self) -> None:
+        if self.cell is not None and self.row is not None:
+            self.row.append(" ".join("".join(self.cell).split()))
+        self.cell = None
+
+    def _end_row(self) -> None:
+        self._end_cell()
+        row, self.row = self.row, None
+        if not row or not any(row) or not self.tables:
+            return
+        table = self.tables[-1]
+        table["rows"] += 1
+        if table["rows"] == 1 and len(row) > 1 and all(0 < len(c) <= HEADER_MAX for c in row):
+            table["header"] = row  # column labels, folded into every following row
+            return
+        header = table["header"]
+        if header and len(header) == len(row):
+            text = " | ".join(f"{h}: {c}" for h, c in zip(header, row) if c)
+        else:
+            text = " | ".join(c for c in row if c)
+        if self._in_main():
+            self.blocks.append(("p", text))
+
     def handle_starttag(self, tag, attrs):
         if tag == "title":
             self.in_title = True
         if tag in VOID:
             if tag == "br" and not self._skipping():
-                self.buffer.append(" ")  # a line break inside a paragraph keeps it one passage
+                # a line break inside a paragraph or table cell keeps it one passage
+                (self.cell if self.cell is not None else self.buffer).append(" ")
             return
-        if tag in BLOCKS and not self._skipping():
-            self._flush()
+        if not self._skipping():
+            if tag == "table":
+                self._flush()
+                self.tables.append({"header": None, "rows": 0})
+            elif tag == "tr":
+                self._end_row()  # the previous row may have no </tr>
+                self._flush()
+                self.row = []
+            elif tag in CELLS:
+                self._end_cell()  # the previous cell may have no </td>
+                if self.row is None:
+                    self.row = []
+                self.cell = []
+            elif tag in BLOCKS:
+                if self.cell is not None:
+                    self.cell.append(" ")  # a <p> inside a table cell stays in that cell
+                else:
+                    self._flush()
         is_main = tag == "main" or dict(attrs).get("role") == "main"
         skip = tag in ALWAYS_SKIP or (tag in OUTSIDE_MAIN_SKIP and not self._in_main())
         self.stack.append((tag, is_main, skip))
-        if tag in BLOCKS and not self._skipping():
+        if tag in BLOCKS and not self._skipping() and self.cell is None:
             self.kind = "h1" if tag == "h1" else "heading" if tag in HEADINGS else "li" if tag == "li" else "p"
 
     def handle_endtag(self, tag):
@@ -74,21 +120,30 @@ class _MainText(HTMLParser):
         if tag in VOID or all(t != tag for t, _, _ in self.stack):
             return  # stray end tag
         start = max(i for i, (t, _, _) in enumerate(self.stack) if t == tag)
-        if any(t in BLOCKS for t, _, _ in self.stack[start:]) and not self._skipping():
-            self._flush()  # only block ends split passages; </a> or </strong> must not
+        closing = {t for t, _, _ in self.stack[start:]}
+        if not self._skipping():
+            if closing & {"table", "tr"}:
+                self._end_row()
+            elif closing & CELLS:
+                self._end_cell()
+            elif self.cell is None and closing & BLOCKS:
+                self._flush()  # only block ends split passages; </a> or </strong> must not
+            if "table" in closing and self.tables:
+                self.tables.pop()
         del self.stack[start:]
 
     def handle_data(self, data):
         if self.in_title:
             self.page_title += data
         elif not self._skipping():
-            self.buffer.append(data)
+            (self.cell if self.cell is not None else self.buffer).append(data)
 
 
 def html_to_markdown(html: str, url: str, copied: str) -> str:
     use_main = bool(re.search(r"<main[\s>]|role=[\"']main[\"']", html, re.I))
     parser = _MainText(use_main)
     parser.feed(html)
+    parser._end_row()  # a table left open at the end of the page
     parser._flush()
     h1 = next((t for k, t in parser.blocks if k == "h1"), "")
     title = h1 or " ".join(parser.page_title.split()).split(" | ")[0]

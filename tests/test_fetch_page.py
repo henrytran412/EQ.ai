@@ -67,6 +67,32 @@ class RealWorldHtml(unittest.TestCase):
         self.assertNotIn("Footer text", body)
 
 
+    def test_table_rows_stay_whole_and_carry_their_header_labels(self):
+        # SJSU marks header rows with <td><strong>, cells may hold <p>, and some pages omit </td>.
+        html = """<html><head><title>Holds</title></head><body><main><h1>Holds</h1>
+        <p>Common holds include:</p>
+        <table><tbody>
+          <tr><td><strong>Hold</strong></td><td><strong>What does it do?</strong></td></tr>
+          <tr><td>Documents Outstanding</td><td><p>Prevents you from enrolling in classes</p></td></tr>
+          <tr><td>Library Fine<td>Blocks transcripts</tr>
+        </tbody></table>
+        <p>After the table.</p></main></body></html>"""
+        body = html_to_markdown(html, url="https://www.sjsu.edu/x", copied="2026-10-24").split("---\n", 2)[2]
+        passages = body.split("\n\n")
+        self.assertIn("Hold: Documents Outstanding | What does it do?: Prevents you from enrolling in classes", passages)
+        self.assertIn("Hold: Library Fine | What does it do?: Blocks transcripts", passages)
+        self.assertNotIn("Hold | What does it do?", body)  # the header row is folded into every row
+        self.assertIn("After the table.", passages)
+
+    def test_table_without_short_header_keeps_plain_rows(self):
+        long = "This first row is a full sentence of data, not a short column label at all."
+        html = f"""<html><body><main><h1>T</h1><table>
+        <tr><td>{long}</td><td>{long}</td></tr><tr><td>A</td><td>B</td></tr></table></main></body></html>"""
+        body = html_to_markdown(html, url="https://www.sjsu.edu/x", copied="2026-10-24").split("---\n", 2)[2]
+        self.assertIn(f"{long} | {long}", body)
+        self.assertIn("A | B", body)
+
+
 class OfficialOnly(unittest.TestCase):
     def test_only_https_pages_on_the_school_domain_are_allowed(self):
         check_official("https://www.sjsu.edu/faso/", "sjsu.edu")
