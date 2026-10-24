@@ -29,6 +29,8 @@ training/*/data/
 training/dataset/
 *.zip
 training/outputs/
+training/runs/
+*.onnx
 *.safetensors
 *.gguf
 *.pt

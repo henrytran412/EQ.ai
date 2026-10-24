@@ -1,0 +1,11 @@
+# Training dependencies (Kaggle images already include most of these).
+# Local CPU install: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+torchaudio
+timm
+transformers
+soundfile
+pillow
+onnx
+kaggle
