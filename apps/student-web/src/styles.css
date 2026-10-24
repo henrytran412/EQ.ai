@@ -274,6 +274,12 @@ p { margin: 0; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .panel { width: min(680px, 100%); display: grid; gap: 12px; }
 .crisis { border-color: var(--clay); }
+.case { border-color: var(--gold-soft); }
+.case-note { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; font-size: 15px; line-height: 1.45; }
+.case-note dt { font: 700 12px/1.6 var(--sans); letter-spacing: 1px; text-transform: uppercase; color: var(--stone); }
+.case-note dd { margin: 0; color: var(--ink); }
+.case-note ul { margin: 0; padding-left: 18px; }
+@media (max-width: 520px) { .case-note { grid-template-columns: 1fr; gap: 2px; } .case-note dd { margin-bottom: 8px; } }
 
 .composer { display: flex; gap: 8px; align-items: center; padding: 12px clamp(16px, 3vw, 32px) max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--hairline); background: var(--canvas); }
 .composer .input { flex: 1; font-size: 16px; }

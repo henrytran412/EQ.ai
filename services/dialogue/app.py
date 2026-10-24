@@ -127,6 +127,8 @@ class Signals(BaseModel):
 def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: list[str] | None = None,
                token_minter=cartesia_minter, chat_limit: tuple[int, float] | None = None,
                token_limit: tuple[int, float] | None = None) -> FastAPI:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")  # uvicorn hides app logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # otherwise one line per Claude/Cartesia request
     if model is None:
         from .llm import ClaudeDialogue
         model = ClaudeDialogue()
@@ -203,17 +205,20 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
         passages = kb.search(f"{req.topic.replace('_', ' ')} {req.text}", k=4)
         stamped = signals.get(req.session_id)
         latest = stamped[1] if stamped and time.time() - stamped[0] < SIGNAL_TTL_SEC else None
+        started = time.perf_counter()
         try:
             turn = model.respond(req, passages, latest)
         except Exception:  # noqa: BLE001 - never leave the student without an answer
             log.exception("model failed")
             turn = None
+        timing = {"model_ms": round((time.perf_counter() - started) * 1000)}
+        log.info("chat model_ms=%d state=%s", timing["model_ms"], turn.state if turn else "fallback")
 
         if turn is None:
             return {"reply": {"text": FALLBACK_REPLY, "citations": [], "uncertainty": "no reliable answer"},
                     "tone": {"state": "neutral", "confidence": 0.0, "ask_confirmation": False,
                              "tts_params": {"speed": 0.9, "emotion": "calm"}, "avatar_expression": "concerned"},
-                    "behavior": {"mode": "offer_handoff", "offer_handoff": True}}
+                    "behavior": {"mode": "offer_handoff", "offer_handoff": True}, "timing": timing}
 
         b = decide_behavior(turn.state, turn.evidence, req.awaiting_confirmation)
         text = turn.reply
@@ -231,6 +236,6 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
                          "ask_confirmation": b.ask_confirmation,
                          "tts_params": {"speed": b.tts_speed, "emotion": b.tts_emotion},
                          "avatar_expression": b.avatar_expression},
-                "behavior": {"mode": b.mode, "offer_handoff": b.offer_handoff}}
+                "behavior": {"mode": b.mode, "offer_handoff": b.offer_handoff}, "timing": timing}
 
     return app

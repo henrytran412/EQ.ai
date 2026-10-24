@@ -40,6 +40,8 @@ def http_poster(url: str) -> Callable[[dict], None]:
 
 def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dict], None] | None = None,
                allowed_origins: list[str] | None = None, min_interval_sec: float = 1.0) -> FastAPI:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")  # uvicorn hides app logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # otherwise one line per /signals post
     if detector is None and face is None and voice is None:
         from .models import load_defaults
         detector, face, voice = load_defaults()

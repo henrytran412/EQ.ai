@@ -58,7 +58,9 @@ class ChatApi(unittest.TestCase):
         r = self.client.post("/chat", json=chat_body())
         self.assertEqual(r.status_code, 200)
         body = r.json()
-        self.assertEqual(set(body), {"reply", "tone", "behavior"})
+        self.assertEqual(set(body), {"reply", "tone", "behavior", "timing"})
+        self.assertIsInstance(body["timing"]["model_ms"], int)  # Claude's share of the reply time
+        self.assertGreaterEqual(body["timing"]["model_ms"], 0)
         self.assertEqual(set(body["tone"]), {"state", "confidence", "ask_confirmation", "tts_params",
                                              "avatar_expression"})
         self.assertEqual(set(body["tone"]["tts_params"]), {"speed", "emotion"})

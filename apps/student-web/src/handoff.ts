@@ -1,3 +1,4 @@
+import type { CaseNote, NoteSource } from './caseNote'
 import type { EmotionEstimate } from './policy'
 
 // shortcut: BroadcastChannel only syncs tabs in the same browser; replace with SpacetimeDB handoffs table + subscription.
@@ -6,6 +7,8 @@ export type Handoff = {
   student_name: string
   topic: string
   summary: string
+  note?: CaseNote // the advisor's case note, once written
+  note_source?: NoteSource
   emotion?: EmotionEstimate // present only if the student agreed to share it
   status: 'waiting' | 'active' | 'resolved'
   staff_id?: string

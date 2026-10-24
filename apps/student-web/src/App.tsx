@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from '
 import Bear from './Bear'
 import EmotionNetwork from './EmotionNetwork'
 import Landing from './Landing'
-import { askAssistant, isDemo } from './api'
+import { askAssistant, isDemo, summarizeHandoff } from './api'
+import CaseNoteFields from './CaseNoteView'
 import { publish, subscribe, type Handoff } from './handoff'
 import { connectPerception, perceptionOn, streamFrames, type Estimate, type Reading } from './perception'
 import { TOPICS, type ChatResponse, type EmotionEstimate, type Expression } from './policy'
@@ -312,6 +313,9 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   const perception = useRef<ReturnType<typeof connectPerception> | null>(null)
   const [botTone, setBotTone] = useState({ emotion: 'content', speed: 1 })
   const [holding, setHolding] = useState(false) // push-to-talk: the mic button is held down
+  // Reply time, from the student's words being ready to the bear's first sound (CLAUDE.md asks us to measure it).
+  const timing = useRef<{ start: number; replied?: number } | null>(null)
+  const [latency, setLatency] = useState<{ answer: number; voice: number } | null>(null)
   const [camHidden, setCamHidden] = useState(false)
   const sessionId = useRef(crypto.randomUUID()).current
   const stopListening = useRef(() => {})
@@ -330,7 +334,19 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     if (from === 'system') return
     setExpression(expr)
     // The bear's mouth only moves for its own words, not when reading out the advisor's.
-    const onStart = from === 'staff' ? () => {} : () => setStatus('speaking')
+    const onStart =
+      from === 'staff'
+        ? () => {}
+        : () => {
+            setStatus('speaking')
+            const t = timing.current
+            if (from === 'assistant' && t?.replied) {
+              const now = performance.now()
+              setLatency({ answer: t.replied - t.start, voice: now - t.replied })
+              console.info(`[latency] answer ${Math.round(t.replied - t.start)} ms, voice ${Math.round(now - t.replied)} ms`)
+              timing.current = null
+            }
+          }
     // Cancelling speech fires its end event late; only reset if nothing else (listening, thinking) took over.
     if (live.current.settings.output === 'voice') speak(text, tone, onStart, () => setStatus((s) => (s === 'speaking' ? 'idle' : s)))
     else setStatus('idle')
@@ -353,7 +369,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   useEffect(() => {
     const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches
     endRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' })
-  }, [msgs, askConfirm, offerHandoff, consentOpen])
+  }, [msgs, askConfirm, offerHandoff, consentOpen, handoff?.note])
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = settings.camera
@@ -422,8 +438,10 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     setExpression('thinking')
     setAskConfirm(false)
     setOfferHandoff(false)
+    timing.current = { start: performance.now() }
     try {
       const res = await askAssistant({ session_id: sessionId, topic: topic.id, text, history, awaiting_confirmation: askConfirm })
+      timing.current.replied = performance.now()
       setEstimates((e) => [...e, { label: res.tone.state, confidence: res.tone.confidence }])
       setBotTone(res.tone.tts_params)
       setAskConfirm(res.tone.ask_confirmation)
@@ -517,21 +535,27 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     )
   }
 
-  function confirmHandoff() {
-    const said = msgs.filter((m) => m.from === 'student').map((m) => m.text)
+  async function confirmHandoff() {
+    const history = msgs
+      .filter((m) => m.from === 'student' || m.from === 'assistant')
+      .map((m) => ({ role: m.from as 'student' | 'assistant', text: m.text }))
     setConsentOpen(false)
+    const id = crypto.randomUUID()
     updateHandoff({
-      id: crypto.randomUUID(),
+      id,
       student_name: settings.name,
       topic: topic.label,
-      // shortcut: summary is the student's last messages; the dialogue service will write a real Claude summary.
-      summary: said.slice(-4).join(' / ') || 'The student has not described the problem yet.',
+      summary: 'Writing a summary of the conversation…',
       emotion: shareEmotion ? estimates.at(-1) : undefined,
       status: 'waiting',
       messages: [],
       created_at: Date.now(),
     })
-    say("Thanks. You're in the queue, and a person will join this chat soon.", 'neutral')
+    // Claude writes the case note (only from the chat, never the emotion signals); it falls back to the student's words.
+    const { note, source } = await summarizeHandoff({ session_id: sessionId, topic: topic.id, history })
+    const h = live.current.handoff
+    if (h?.id === id) updateHandoff({ ...h, summary: note.problem, note, note_source: source })
+    say("Done. I sent this summary to an SJSU advisor, so you won't have to explain it again.", 'happy')
   }
 
   const latest = estimates.at(-1)
@@ -710,6 +734,21 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
             </div>
           </div>
         )}
+        {handoff && (
+          <section className="card panel case" aria-live="polite" aria-label="Handoff summary">
+            <p className="eyebrow">What the SJSU advisor sees</p>
+            <strong>
+              {handoff.student_name} · {handoff.topic}
+            </strong>
+            {handoff.note ? <CaseNoteFields note={handoff.note} /> : <p className="muted">Writing a short summary for the advisor…</p>}
+            <p className="muted">
+              {handoff.emotion
+                ? `Emotion estimate shared with your permission: ${handoff.emotion.label}.`
+                : 'Your emotion estimate is not shared.'}
+              {handoff.note && (handoff.note_source === 'claude' ? ' Summary written by Claude from this chat.' : ' Summary taken from your own messages.')}
+            </p>
+          </section>
+        )}
         <div ref={endRef} />
       </main>
       </div>
@@ -736,6 +775,12 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           On-device emotion service:{' '}
           <strong>{!perceptionOn ? 'not configured' : perceptionLive ? 'connected' : 'not connected'}</strong>
         </p>
+        {latency && (
+          <p className="muted">
+            Last reply: <strong>{((latency.answer + latency.voice) / 1000).toFixed(1)} s</strong> after your words were ready
+            (answer {(latency.answer / 1000).toFixed(1)} s · voice {(latency.voice / 1000).toFixed(1)} s)
+          </p>
+        )}
         {estimates.length > 0 && (
           <div className="history">
             <p className="eyebrow">This chat</p>
