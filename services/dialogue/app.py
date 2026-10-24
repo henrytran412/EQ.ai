@@ -3,16 +3,19 @@
 Run from the repo root:
   .venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000
 Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, CLAUDE_EFFORT, ALLOWED_ORIGINS, CAMPUS_COUNSELING,
-     CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_STT_MODEL.
+     CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_STT_MODEL, CHAT_LIMIT, TOKEN_LIMIT ("hits/seconds").
+Public use: bind to 127.0.0.1 behind the Cloudflare tunnel, which sets CF-Connecting-IP.
 """
 
 import logging
 import os
+import threading
 import time
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -50,6 +53,31 @@ def cartesia_minter(grants: dict, expires_in: int) -> str:
     return r.json()["token"]
 
 
+class RateLimiter:
+    """Allow `limit` hits per `window` seconds per key (sliding window)."""
+
+    def __init__(self, limit: int, window: float, clock=time.monotonic):
+        self.limit, self.window, self.clock = limit, window, clock
+        self.hits: dict[str, deque] = defaultdict(deque)  # shortcut: in memory, one process, never pruned
+        self.lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        now = self.clock()
+        with self.lock:
+            q = self.hits[key]
+            while q and now - q[0] >= self.window:
+                q.popleft()
+            if len(q) >= self.limit:
+                return False
+            q.append(now)
+            return True
+
+
+def env_limit(name: str, default: str) -> tuple[int, float]:
+    hits, seconds = os.environ.get(name, default).split("/")
+    return int(hits), float(seconds)
+
+
 class Turn(BaseModel):
     role: Literal["student", "assistant"]
     text: str = Field(max_length=4000)
@@ -85,12 +113,15 @@ class Signals(BaseModel):
 
 
 def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: list[str] | None = None,
-               token_minter=cartesia_minter) -> FastAPI:
+               token_minter=cartesia_minter, chat_limit: tuple[int, float] | None = None,
+               token_limit: tuple[int, float] | None = None) -> FastAPI:
     if model is None:
         from .llm import ClaudeDialogue
         model = ClaudeDialogue()
     kb = KnowledgeBase.load(knowledge_dir or REPO / "data" / "knowledge" / "pages")
     origins = allowed_origins or os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    chat_rl = RateLimiter(*(chat_limit or env_limit("CHAT_LIMIT", "20/600")))
+    token_rl = RateLimiter(*(token_limit or env_limit("TOKEN_LIMIT", "6/600")))
     signals: dict[str, tuple[float, dict]] = {}  # shortcut: in-memory, one process; SpacetimeDB replaces this
 
     app = FastAPI(title="EQ.ai dialogue")
@@ -98,13 +129,21 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
                        allow_headers=["Content-Type"])
     log.info("knowledge base: %d passages", len(kb.passages))
 
+    def check_rate(rl: RateLimiter, request: Request) -> None:
+        # Behind the tunnel every request comes from 127.0.0.1; Cloudflare puts the visitor's IP in this header.
+        ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "unknown")
+        if not rl.allow(ip):
+            raise HTTPException(status_code=429, detail="Too many requests. Please wait a few minutes.",
+                                headers={"Retry-After": str(int(rl.window))})
+
     @app.get("/health")
     def health():
         return {"ok": True, "passages": len(kb.passages)}
 
     @app.post("/voice/token")
-    def voice_token():
+    def voice_token(request: Request):
         """Browser talks to Cartesia directly (lowest latency); the API key never leaves this server."""
+        check_rate(token_rl, request)
         try:
             token = token_minter({"tts": True, "stt": True}, TOKEN_TTL_SEC)
         except CartesiaNotConfigured as e:
@@ -126,7 +165,8 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
         return Response(status_code=204)
 
     @app.post("/chat")
-    def chat(req: ChatRequest):
+    def chat(req: ChatRequest, request: Request):
+        check_rate(chat_rl, request)
         passages = kb.search(f"{req.topic.replace('_', ' ')} {req.text}", k=4)
         stamped = signals.get(req.session_id)
         latest = stamped[1] if stamped and time.time() - stamped[0] < SIGNAL_TTL_SEC else None
