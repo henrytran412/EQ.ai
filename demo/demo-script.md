@@ -40,10 +40,12 @@ Setup on EQ.ai:
 
 | # | Say this | Your face | Your voice | EQ.ai should… |
 |---|---|---|---|---|
-| 1 | "Hi. I have a hold on my MySJSU account, and I can't register for spring classes. What does that mean?" | Relaxed, normal | Normal speed and volume | Estimate **neutral**. Answer from the official holds page and cite it. Voice: neutral, 1.0×. |
+| 1 | "Hello. There is a hold on my MySJSU account. How do I get it removed so I can register for spring classes?" | Relaxed, normal | Normal speed and volume | Estimate **neutral**. Answer from the official holds page and cite it. Voice: neutral, 1.0×. (Don't say "What does that mean?": in testing, that phrase made Claude read line 1 as confused.) |
 | 2 | "Sorry… my English is not so good. It says something about a To Do List from financial aid? I don't understand. What do I need to do?" | Eyebrows pulled together, head tilted, a small squint | Slow, with pauses and "um" | Estimate **confused**. Use simpler words and give one concrete step (upload the documents on the MySJSU To Do List). Voice: calm, **0.8×**, audibly slower. Thinking face. |
 | 3 | "I already uploaded my tax documents three days ago, and the hold is still there! Registration opens on Friday, and nobody answers the phone!" | Eyebrows down, tight lips, a small head shake | Louder, faster, sharper | Estimate **frustrated**. Check before acting: "It sounds like this has been frustrating. Am I reading that right?" Voice: calm, 0.9×. May mention that documents take 1–3 business days to clear. |
 | 4 | "Yes… I'm really stressed about it." | Sigh, eyes down | Quieter, tired | Thank you for confirming, then offer to connect you with an advisor. |
+
+**Rehearsal result (2026-10-24, typed text, no face or voice signals, live site):** the states were neutral 0.6, then confused 0.7, then frustrated 0.75 (it asked "Am I reading that right?" and offered an advisor), then frustrated 0.7 (it offered an advisor). Claude took 2–3 s for lines 1–2 and 5–7 s for lines 3–4, so trim those pauses when you edit.
 
 Then click **Talk to a person**:
 - Show the choice to share your emotion estimate, which is **off** by default.
