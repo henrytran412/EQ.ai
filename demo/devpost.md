@@ -74,7 +74,7 @@ Browser (eqai.study)                       Jetson Orin Nano
 - I trained both with PyTorch and timm on Kaggle's free T4 GPUs and exported them to ONNX.
 - They run on the Jetson's GPU with ONNX Runtime and CUDA: **19.6 ms** per face prediction and **83 ms** per voice prediction, about 6× faster than its CPU. Only labels leave the Jetson.
 
-**The live site.** The Jetson runs the React + TypeScript web app, a FastAPI dialogue service and a WebSocket perception service. Each is bound to localhost and restarts itself after a crash. The tunnel exposes only the public routes, and paid API calls are rate-limited per visitor. The project has **113 Python tests and 32 web tests**.
+**The live site.** The Jetson runs the React + TypeScript web app, a FastAPI dialogue service and a WebSocket perception service. Each is bound to localhost and restarts itself after a crash. The tunnel exposes only the public routes, and paid API calls are rate-limited per visitor. The project has **119 Python tests and 33 web tests**.
 
 **The handoff database.** Handoffs live in **SQLite** on the Jetson: free, built into Python, nothing to set up. A row is created only when the student clicks OK on the handoff confirmation, holds only what that screen lists, and is deleted after 24 hours. The advisor view loads it in a new tab by a random, unguessable id.
 

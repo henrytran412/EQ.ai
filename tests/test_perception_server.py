@@ -124,6 +124,30 @@ class PerceptionServer(unittest.TestCase):
             with self.assertRaises(WebSocketDisconnect):
                 ws.receive_json()
 
+    def test_huge_image_is_skipped_without_decoding(self):
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("1", (4000, 3000)).save(buf, "PNG")  # 12 megapixels in a few KB: a decode would be ~36 MB
+        with self.client.websocket_connect("/ws/s1", headers=ORIGIN) as ws:
+            ws.send_bytes(b"\x01" + buf.getvalue())
+            ws.send_bytes(jpeg())
+            self.assertEqual(ws.receive_json()["face"]["label"], "fear")
+        self.assertEqual(self.detector.calls, 1)  # only the real frame reached the detector
+
+    def test_too_many_open_sockets_are_refused(self):
+        from starlette.websockets import WebSocketDisconnect
+        client = self.make_app(max_sockets=1, min_frame_sec=0)
+        with client.websocket_connect("/ws/s1", headers=ORIGIN) as first:
+            with self.assertRaises(WebSocketDisconnect):
+                with client.websocket_connect("/ws/s2", headers=ORIGIN) as second:
+                    second.receive_json()
+            first.send_bytes(jpeg())
+            self.assertEqual(first.receive_json()["type"], "reading")  # the open socket keeps working
+        with client.websocket_connect("/ws/s3", headers=ORIGIN) as again:  # closing frees the slot
+            again.send_bytes(jpeg())
+            self.assertEqual(again.receive_json()["type"], "reading")
+
     def test_undecodable_jpeg_is_skipped_not_fatal(self):
         with self.client.websocket_connect("/ws/s1", headers=ORIGIN) as ws:
             ws.send_bytes(b"\x01not a jpeg")

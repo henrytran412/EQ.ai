@@ -1,0 +1,23 @@
+EQ.ai project thumbnail
+Generated using the built-in image generation tool on October 24, 2026.
+Asset: eqai-project-thumbnail.png
+Original mascot and palette are based on the existing EQ.ai app.
+This is a promotional illustration, not a screenshot or model-evaluation result.
+
+Final generation prompt:
+
+Use case: ads-marketing.
+Asset type: a finished landscape project thumbnail / promotional cover for the existing EQ.ai project. Create a single polished 16:9 image, ideally 2048 by 1152, not a contact sheet.
+
+Brand and subject: EQ.ai is a calm, frustration-aware voice assistant for international students that can guide them toward human university support. The recognizable mascot is an original, simple golden bear FACE, not a full-body teddy bear. Keep its design: broad round golden-ochre face, two round ears with lighter cream interiors, two closed smiling curved eyes in dark espresso, small dark oval nose with one tiny highlight, cream oval muzzle, a simple smiling w-shaped mouth, subtle muted coral oval cheeks, short gentle eyebrows. No clothes, graduation cap, headphones or accessories.
+
+Art direction: premium, restrained editorial graphic design. Deep forest green #283e34 full-bleed flat background; warm bone #f5f5ef typography; muted sage #ced4b8 and pale sage #e3eadd for one large speech-bubble field that carries the bear on the right; golden bear #e2b06a with cream #f8e6c6. Crisp, beautifully finished flat vector-like illustration, not 3D, not furry photorealism. Maintain the original website's warm serif typography and friendly minimal visual identity.
+
+Composition: oversized expressive bear illustration occupying the right 42% within a large pale sage conversational bubble silhouette. On the left, strong clean typographic hierarchy and generous negative space. A small, elegant voice waveform below the bear can signal the voice experience. Keep everything comfortably inside a 7% safe margin and legible at small thumbnail size. Align the left text consistently. Balance the large wordmark with the bear, without clutter.
+
+Text, verbatim and only these four lines:
+"EQ.ai" — largest text, elegant contemporary editorial serif, very readable.
+"Explain it once." — prominent secondary line, same refined serif.
+"Voice support for international students." — smaller, clear sans-serif, may wrap into two balanced lines.
+"eqai.study" — discreet sans-serif at bottom left.
+Render all text precisely, with high contrast. No fake app screens, invented metrics, awards, sponsor logos, charts, brain/neuroscience illustrations, extra slogans, extra characters, gradients, glows, heavy shadows, or watermark. The result should look like an intentional project cover from a skilled brand designer, not a generic AI startup template.

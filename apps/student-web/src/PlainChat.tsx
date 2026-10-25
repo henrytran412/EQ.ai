@@ -121,6 +121,10 @@ export default function PlainChat() {
             <div className="assistant-presence">
               <h2>Plain mode</h2>
               <p className="status" aria-live="polite"><span className={`presence-dot presence-${status}`} aria-hidden="true" />{STATUS[status]}</p>
+              <p className="plain-privacy">
+                Your voice goes to Cartesia to become text, your messages go to Claude (Anthropic) for the answers, and
+                Cartesia speaks the replies. EQ.ai stores none of it.
+              </p>
             </div>
           </section>
           {notice && <p className="chat-notice note" role="alert">{notice}</p>}

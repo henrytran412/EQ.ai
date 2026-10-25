@@ -15,6 +15,14 @@ test('API response: unknown state/expression fall back, bad links and speeds are
   assert.throws(() => normalizeResponse({}))
 })
 
+test('API response: confidence stays a share from 0 to 1 (the handoff refuses anything else)', () => {
+  const conf = (c: unknown) => normalizeResponse({ reply: { text: 'hi' }, tone: { confidence: c } }).tone.confidence
+  assert.equal(conf(0.7), 0.7)
+  assert.equal(conf(70), 1)
+  assert.equal(conf(-1), 0)
+  assert.equal(conf('high'), 0)
+})
+
 const req = (text: string, extra = {}) => ({
   session_id: 's',
   topic: 'financial_aid_hold',

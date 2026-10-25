@@ -8,6 +8,7 @@ Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, DIALOGUE_EFFORT, ALLOWED_ORIGINS, CAMPUS_C
 Public use: bind to 127.0.0.1 behind the Cloudflare tunnel, which sets CF-Connecting-IP.
 """
 
+import ipaddress
 import logging
 import os
 import threading
@@ -20,13 +21,15 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .handoffs import HandoffStore
+from .handoffs import Full, HandoffStore
 from .policy import decide_behavior
 from .retrieval import KnowledgeBase
 
 log = logging.getLogger("dialogue")
 REPO = Path(__file__).resolve().parents[2]
-SIGNAL_TTL_SEC = 30  # older perception readings are ignored
+SIGNAL_TTL_SEC = 30  # older perception readings are ignored, then dropped
+MAX_BODY_BYTES = 1_000_000  # the largest real request (40 turns of chat) is well under this
+TEXT_MAX = 2000  # one message; typed ones are capped at 1000 and a 60 s voice turn is about 1000
 CRISIS = ("If you are in crisis or thinking about harming yourself, you can call or text 988, the US "
           "Suicide and Crisis Lifeline, any time.")
 FALLBACK_REPLY = ("I'm sorry, I can't answer that reliably right now. Would you like me to connect you "
@@ -64,12 +67,17 @@ class RateLimiter:
 
     def __init__(self, limit: int, window: float, clock=time.monotonic):
         self.limit, self.window, self.clock = limit, window, clock
-        self.hits: dict[str, deque] = defaultdict(deque)  # shortcut: in memory, one process, never pruned
+        self.hits: dict[str, deque] = defaultdict(deque)  # shortcut: in memory, one process
         self.lock = threading.Lock()
+        self.calls = 0
 
     def allow(self, key: str) -> bool:
         now = self.clock()
         with self.lock:
+            self.calls += 1
+            if self.calls % 500 == 0:  # forget visitors whose hits have all expired, so IPs don't pile up
+                for k in [k for k, q in self.hits.items() if not q or now - q[-1] >= self.window]:
+                    del self.hits[k]
             q = self.hits[key]
             while q and now - q[0] >= self.window:
                 q.popleft()
@@ -77,6 +85,39 @@ class RateLimiter:
                 return False
             q.append(now)
             return True
+
+
+class BodyLimit:
+    """Refuse request bodies over `max_bytes` while they arrive (chunked uploads too), before any JSON parsing:
+    a 100 MB body of nested lists would otherwise cost gigabytes of memory before validation or rate limits."""
+
+    def __init__(self, app, max_bytes: int):
+        self.app, self.max_bytes = app, max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        total = 0
+
+        async def counted():
+            nonlocal total
+            message = await receive()
+            total += len(message.get("body", b""))
+            if total > self.max_bytes:
+                raise HTTPException(status_code=413, detail="Request too large.")
+            return message
+
+        await self.app(scope, counted, send)
+
+
+def client_key(ip: str) -> str:
+    """Rate-limit key: the IP, or its /64 for IPv6 (one home or phone gets a whole /64 to rotate through)."""
+    try:
+        if ipaddress.ip_address(ip).version == 6:
+            return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    except ValueError:
+        pass
+    return ip
 
 
 def env_limit(name: str, default: str) -> tuple[int, float]:
@@ -89,13 +130,13 @@ Topic = Literal["financial_aid_hold", "scholarships", "visa_status", "other"]
 
 class Turn(BaseModel):
     role: Literal["student", "assistant"]
-    text: str = Field(max_length=4000)
+    text: str = Field(max_length=TEXT_MAX)
 
 
 class ChatRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=100)
     topic: Topic
-    text: str = Field(max_length=4000)
+    text: str = Field(max_length=TEXT_MAX)
     history: list[Turn] = Field(default_factory=list, max_length=40)
     awaiting_confirmation: bool = False
     plain: bool = False  # the /plain comparison page: same answers, emotion features off
@@ -160,18 +201,30 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
     chat_rl = RateLimiter(*(chat_limit or env_limit("CHAT_LIMIT", "60/600")))
     token_rl = RateLimiter(*(token_limit or env_limit("TOKEN_LIMIT", "30/600")))
     handoff_rl = RateLimiter(*(handoff_limit or env_limit("HANDOFF_LIMIT", "300/600")))  # advisor-view loads
+    create_rl = RateLimiter(30, 600)  # saved handoffs per visitor, so one visitor can't fill the disk
     signals: dict[str, tuple[float, dict]] = {}  # shortcut: in-memory, one process
     store = HandoffStore(handoff_db or os.environ.get("HANDOFF_DB") or str(REPO / "data" / "handoffs.db"))
+
+    def purge_forever():  # without visitors nothing else would delete expired handoffs (the 24-hour promise)
+        while True:
+            time.sleep(600)
+            try:
+                store.purge()
+            except Exception:  # noqa: BLE001 - try again next round
+                log.exception("handoff purge failed")
+
+    threading.Thread(target=purge_forever, name="handoff-purge", daemon=True).start()
 
     app = FastAPI(title="EQ.ai dialogue")
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
                        allow_headers=["Content-Type"])
+    app.add_middleware(BodyLimit, max_bytes=MAX_BODY_BYTES)
     log.info("knowledge base: %d passages", len(kb.passages))
 
     def check_rate(rl: RateLimiter, request: Request) -> None:
         # Behind the tunnel every request comes from 127.0.0.1; Cloudflare puts the visitor's IP in this header.
         ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "unknown")
-        if not rl.allow(ip):
+        if not rl.allow(client_key(ip)):
             raise HTTPException(status_code=429, detail="Too many requests. Please wait a few minutes.",
                                 headers={"Retry-After": str(int(rl.window))})
 
@@ -203,7 +256,11 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
 
     @app.post("/signals", status_code=204)
     def post_signals(body: Signals):
-        signals[body.session_id] = (time.time(), body.model_dump(exclude={"session_id"}))
+        now = time.time()
+        for sid, (stamp, _) in list(signals.items()):
+            if now - stamp >= SIGNAL_TTL_SEC:
+                signals.pop(sid, None)  # stale labels are never used: don't keep them
+        signals[body.session_id] = (now, body.model_dump(exclude={"session_id"}))
         return Response(status_code=204)
 
     @app.post("/handoffs")
@@ -212,6 +269,7 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
         with the estimated moods only if the student shared them (or the note is the student's own words if
         Claude fails); then the handoff is stored for the advisor view."""
         check_rate(chat_rl, request)  # a Claude call
+        check_rate(create_rl, request)
         said = [t.text for t in req.history if t.role == "student"]
         timeline = [p for p in req.timeline if p.turn < len(req.history) and req.history[p.turn].role == "student"]
         summary = None
@@ -226,10 +284,13 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
             "mood": None, "hard_moments": []}
         if not timeline:  # moods not shared: no emotion text, even if the model wrote some
             note["mood"], note["hard_moments"] = None, []
-        return store.create({"student_name": req.student_name, "topic": req.topic, "note": note,
-                             "note_source": "claude" if summary else "fallback",
-                             "timeline": [p.model_dump() for p in timeline],
-                             "transcript": [t.model_dump() for t in req.history]})
+        try:
+            return store.create({"student_name": req.student_name, "topic": req.topic, "note": note,
+                                 "note_source": "claude" if summary else "fallback",
+                                 "timeline": [p.model_dump() for p in timeline],
+                                 "transcript": [t.model_dump() for t in req.history]})
+        except Full:
+            raise HTTPException(status_code=503, detail="Too many saved handoffs right now. Please try again later.")
 
     @app.get("/handoffs/{hid}")
     def get_handoff(hid: str, request: Request):

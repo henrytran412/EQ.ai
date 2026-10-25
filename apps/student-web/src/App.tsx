@@ -217,8 +217,8 @@ function Setup({ settings, update, onStart }: { settings: Settings; update: Upda
         <IOChoice label="Replies by" value={settings.output} onChange={(output) => update({ output })} />
         <label className="toggle">
           <input type="checkbox" checked={!!settings.camera} onChange={(e) => toggleCamera(e.target.checked)} />
-          Turn on camera (optional). Video goes only to EQ.ai's own emotion computer (not a cloud service), is analyzed
-          live, and is never stored.
+          Turn on camera (optional). Video goes through Cloudflare's network to EQ.ai's own emotion computer (not an AI
+          cloud service), is analyzed live, and is never stored.
         </label>
         <div className="devices">
           <DeviceSelect
@@ -246,8 +246,9 @@ function Setup({ settings, update, onStart }: { settings: Settings; update: Upda
         )}
         <p className="note">
           Your messages and the short emotion estimates (like "confused") go to Claude, Anthropic's AI, to write the bear's
-          replies. EQ.ai doesn't keep a copy of your chat, unless you ask for a person: then your first name, a summary
-          and this chat are kept for 24 hours so an advisor can help.
+          replies, and spoken replies are made by Cartesia from the reply text. EQ.ai doesn't keep a copy of your chat,
+          unless you ask for a person: then your first name, this chat and a summary are kept for 24 hours so an advisor
+          can help.
         </p>
         {settings.input === 'voice' && !cartesiaVoice && (
           <p className="note">
@@ -304,7 +305,7 @@ type Msg = {
 type Status = 'idle' | 'listening' | 'thinking' | 'speaking'
 
 const VOICE_NOTE = "While you talk, your voice goes to Cartesia to become text, and to EQ.ai's own emotion computer. EQ.ai doesn't store it."
-const CAMERA_NOTE = "Camera frames go only to EQ.ai's own emotion computer, are analyzed live, and are never stored."
+const CAMERA_NOTE = "Camera frames go through Cloudflare's network to EQ.ai's own emotion computer, are analyzed live, and are never stored."
 
 const probsOf = (e: Estimate | null | undefined) =>
   !e ? null : Object.keys(e.probs).length ? e.probs : { [e.label]: e.confidence }
@@ -415,6 +416,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
 
     const history = msgs
       .filter((m) => m.from === 'student' || m.from === 'assistant')
+      .slice(-40) // the service accepts 40 turns; longer chats would fail every message
       .map((m) => ({ role: m.from as 'student' | 'assistant', text: m.text }))
     setMsgs((m) => [...m, { from: 'student', text }])
     setStatus('thinking')
@@ -698,8 +700,8 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           <div className="card panel">
             <strong>Here's what I'll share with the advisor</strong>
             <p className="muted">
-              Your name ({settings.name}), the topic ({topic.label}), and a summary of this chat. It's kept for 24 hours,
-              then deleted. Click OK to see what the advisor gets, in a new tab.
+              Your name ({settings.name}), the topic ({topic.label}), this whole chat, and a summary of it. It's kept for 24
+              hours, then deleted. Click OK to see what the advisor gets, in a new tab.
             </p>
             <label className="toggle">
               <input type="checkbox" checked={shareEmotion} onChange={(e) => setShareEmotion(e.target.checked)} />
@@ -730,7 +732,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
             </strong>
             {handoff.note ? <CaseNoteFields note={handoff.note} source={handoff.note_source} /> : <p className="muted">Writing a short summary for the advisor…</p>}
             <p className="muted">
-              {handoff.timeline.length ? 'Your mood estimates are shared with your permission.' : 'Your mood estimates are not shared.'}
+              {handoff.timeline.length ? 'Your mood estimates are shared with your permission.' : 'No mood estimates are shared.'}
               {handoff.note && (handoff.note_source === 'claude' ? ' Summary written by Claude from this chat.' : ' Summary taken from your own messages.')}
             </p>
             {!handoff.local && (

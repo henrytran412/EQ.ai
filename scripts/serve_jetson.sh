@@ -24,12 +24,14 @@ stop() {  # by saved process group only, never by name pattern (the Jetson is sh
 
 case "${1:-status}" in
   start)
-    start dialogue .venv/bin/uvicorn services.dialogue.app:create_app --factory --host 127.0.0.1 --port 8000 --env-file .env
+    # --no-access-log: uvicorn's access lines would write every visitor's IP to logs/ (docs/privacy.md says they aren't)
+    start dialogue .venv/bin/uvicorn services.dialogue.app:create_app --factory --host 127.0.0.1 --port 8000 --env-file .env \
+      --no-access-log
     # CUDA/cuDNN live in pip packages inside .venv (scripts/setup_jetson.sh); without them perception uses the CPU
     nv=$(echo "$PWD"/.venv/lib/python3*/site-packages/nvidia)
     start perception env LD_LIBRARY_PATH="$nv/cu13/lib:$nv/cudnn/lib" \
       .venv/bin/uvicorn services.perception.server:create_app --factory --host 127.0.0.1 --port 8001 --env-file .env \
-      --ws-max-size 600000 # largest valid message is a 500 KB camera frame; uvicorn's default is 16 MB
+      --no-access-log --ws-max-size 600000 # largest valid message is a 500 KB camera frame; uvicorn's default is 16 MB
     start website .venv/bin/python -m http.server 8080 --bind 127.0.0.1 --directory apps/student-web/dist
     # HOME=$PWD keeps cloudflared's login cert and tunnel credentials in ./.cloudflared (gitignored)
     if [ -f .cloudflared/config.yml ]; then start tunnel env HOME="$PWD" bin/cloudflared tunnel --config .cloudflared/config.yml run

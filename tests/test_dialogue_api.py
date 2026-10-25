@@ -100,6 +100,12 @@ class ChatApi(unittest.TestCase):
         self.assertEqual(self.client.post("/chat", json=chat_body(text="x" * 4001)).status_code, 422)
         self.assertEqual(self.client.post("/chat", json=chat_body(text="   ")).status_code, 422)
 
+    def test_oversized_body_is_refused_before_parsing(self):
+        big = b'{"session_id": "s1", "topic": "other", "text": "' + b"a" * 1_100_000 + b'"}'
+        r = self.client.post("/chat", content=big, headers={"Content-Type": "application/json"})
+        self.assertEqual(r.status_code, 413)
+        self.assertEqual(self.model.calls, [])
+
     def test_cors_allows_only_the_student_app(self):
         ok = self.client.options("/chat", headers={"Origin": "http://localhost:5173",
                                                    "Access-Control-Request-Method": "POST"})

@@ -73,7 +73,7 @@ export default function AdvisorView() {
             <p className="muted">Estimates from EQ.ai's text, face and voice models, shared by the student. They can be wrong, especially with accents.</p>
           </>
         ) : (
-          <p className="muted">The student chose not to share their mood estimates.</p>
+          <p className="muted">No mood estimates were shared.</p>
         )}
       </section>
 

@@ -42,7 +42,7 @@ export function normalizeResponse(data: any): ChatResponse {
     },
     tone: {
       state: typeof tone.state === 'string' ? tone.state : 'neutral',
-      confidence: Number.isFinite(tone.confidence) ? tone.confidence : 0,
+      confidence: Number.isFinite(tone.confidence) ? Math.min(1, Math.max(0, tone.confidence)) : 0, // the model's number is unbounded
       ask_confirmation: tone.ask_confirmation === true,
       tts_params: { speed: speed >= 0.6 && speed <= 1.5 ? speed : 1, emotion: String(tone.tts_params?.emotion ?? 'neutral') },
       avatar_expression: EXPRESSIONS.includes(tone.avatar_expression) ? tone.avatar_expression : 'neutral',

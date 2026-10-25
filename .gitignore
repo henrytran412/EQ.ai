@@ -59,3 +59,6 @@ data/knowledge/pages/
 bin/
 logs/
 run/
+
+# raw screenshots (may show faces or other people); commit only the reviewed, renamed copies
+apps/student-web/docs/screenshots/Screenshot *

@@ -1,8 +1,15 @@
-# EQ.ai student web + staff console
+# EQ.ai student web
 
 React + Vite + TypeScript. Styling follows `DESIGN-oura.md` (Fraunces/Inter stand in for Oura's fonts).
 
 **Website: [eqai.study](https://eqai.study)**
+
+![EQ.ai project thumbnail: Explain it once, with the golden bear, voice waveform, and eqai.study](docs/eqai-project-thumbnail.png)
+
+[Download the project thumbnail](docs/eqai-project-thumbnail.png) · [Generation prompt](docs/thumbnail-prompt.txt)
+
+The cover is an AI-generated promotional illustration using the app's bear and palette,
+not a UI screenshot. The browser-tab icon is unchanged.
 
 ## UI preview
 
@@ -52,17 +59,19 @@ quiet sage/bone surfaces, conversation-first hierarchy, and motion limited to us
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173 (student), http://localhost:5173/staff (staff console)
+npm run dev        # http://localhost:5173 (student), /plain (emotion features off), /advisor (advisor view)
 npm test           # policy, perception, emotion-map, training-results, voice, and case-note checks
 npm run build      # type-check + production build
 ```
 
-Open the student page and `/staff` in two tabs of the **same browser** to demo the live handoff.
+Talk to a person, then OK, opens the advisor view for that chat in a new tab (it needs the dialogue service).
 
 ## Pages
 
 - `/` landing, demo login (first name only, nothing saved), topic + voice/text setup, chat with the bear.
-- `/staff` handoff queue: summary, consent-gated emotion estimate, live chat, resolve.
+- `/advisor/?id=...` advisor view (new tab after a handoff): Claude's summary, the estimated mood per message
+  and where it seemed hard (only if the student shares their mood), and the chat.
+- `/plain` the same assistant with the emotion features off, for comparison.
 
 ### Landing page results
 

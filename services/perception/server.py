@@ -9,6 +9,7 @@ Run from the repo root:
 Env: DIALOGUE_URL (default http://localhost:8000), ALLOWED_ORIGINS, PERCEPTION_MODELS.
 """
 
+import io
 import logging
 import os
 import time
@@ -17,6 +18,7 @@ from typing import Callable
 import cv2
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
 from .core import AudioWindow, EmaSmoother, expand_box, is_speech, parse_message, pick_face
@@ -24,6 +26,8 @@ from .core import AudioWindow, EmaSmoother, expand_box, is_speech, parse_message
 log = logging.getLogger("perception")
 SAMPLE_RATE = 16000
 VOICE_EVERY_SEC = 1.0  # classify the latest window at most once per second
+MAX_FRAME_PIXELS = 1280 * 960  # webcam frames are 640 px wide; a tiny JPEG can claim gigapixels and exhaust memory
+MAX_SOCKETS = 50  # each open socket holds a 3 s audio window; a flood of sockets would exhaust memory
 
 
 def http_poster(url: str) -> Callable[[dict], None]:
@@ -40,7 +44,7 @@ def http_poster(url: str) -> Callable[[dict], None]:
 
 def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dict], None] | None = None,
                allowed_origins: list[str] | None = None, min_interval_sec: float = 1.0,
-               min_frame_sec: float = 0.25) -> FastAPI:
+               min_frame_sec: float = 0.25, max_sockets: int = MAX_SOCKETS) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")  # uvicorn hides app logs
     logging.getLogger("httpx").setLevel(logging.WARNING)  # otherwise one line per /signals post
     if detector is None and face is None and voice is None:
@@ -52,6 +56,12 @@ def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dic
     app = FastAPI(title="EQ.ai perception")
 
     def classify_frame(jpeg: bytes, previous):
+        try:
+            width, height = Image.open(io.BytesIO(jpeg)).size  # reads only the header, no decoding
+        except Exception:  # noqa: BLE001 - not an image
+            return None
+        if width * height > MAX_FRAME_PIXELS:
+            return None
         bgr = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
         if bgr is None:
             return None
@@ -67,12 +77,18 @@ def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dic
     def health():
         return {"face": face is not None and detector is not None, "voice": voice is not None}
 
+    live = {"sockets": 0}
+
     @app.websocket("/ws/{session_id}")
     async def stream(ws: WebSocket, session_id: str):
         if ws.headers.get("origin") not in origins or not 0 < len(session_id) <= 100:
             await ws.close(code=1008)
             return
+        if live["sockets"] >= max_sockets:
+            await ws.close(code=1013)  # try again later; the web app reconnects every 3 s
+            return
         await ws.accept()
+        live["sockets"] += 1
         face_s = EmaSmoother(face.labels if face else [], alpha=0.3, timeout_sec=3.0)
         voice_s = EmaSmoother(voice.labels if voice else [], alpha=0.5, timeout_sec=4.0)
         window = AudioWindow(SAMPLE_RATE, voice.window_sec) if voice else None
@@ -118,5 +134,7 @@ def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dic
                                                            "voice": brief(voice_r)})
         except WebSocketDisconnect:
             pass
+        finally:
+            live["sockets"] -= 1
 
     return app

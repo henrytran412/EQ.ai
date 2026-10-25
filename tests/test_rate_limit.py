@@ -24,6 +24,23 @@ class RateLimiterWindow(unittest.TestCase):
         now[0] = 60.0
         self.assertTrue(rl.allow("a"))
 
+    def test_visitors_whose_hits_expired_are_forgotten(self):
+        from services.dialogue.app import RateLimiter
+        now = [0.0]
+        rl = RateLimiter(limit=5, window=60, clock=lambda: now[0])
+        for i in range(499):
+            rl.allow(f"10.0.{i // 250}.{i % 250}")
+        now[0] = 61.0
+        rl.allow("10.9.9.9")  # the 500th call cleans up
+        self.assertEqual(list(rl.hits), ["10.9.9.9"])
+
+    def test_one_ipv6_block_counts_as_one_visitor(self):
+        from services.dialogue.app import client_key
+        self.assertEqual(client_key("2001:db8:1:2:aaaa::1"), client_key("2001:db8:1:2:bbbb::9"))
+        self.assertNotEqual(client_key("2001:db8:1:2::1"), client_key("2001:db8:1:3::1"))
+        self.assertEqual(client_key("203.0.113.7"), "203.0.113.7")
+        self.assertEqual(client_key("unknown"), "unknown")
+
 
 @unittest.skipUnless(HAS_WEB, "fastapi/httpx/anthropic not installed")
 class RateLimitedEndpoints(unittest.TestCase):

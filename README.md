@@ -1,5 +1,7 @@
 # EQ.ai: explain it once
 
+![EQ.ai: Explain it once. Voice support for international students. eqai.study](apps/student-web/docs/eqai-project-thumbnail.png)
+
 **A voice assistant for international students at San José State University (SJSU) who are stuck on a
 stressful school problem, starting with a financial aid hold that blocks registration.**
 
@@ -31,8 +33,34 @@ service. Always confirm important details with the office.
    summary (the problem, any deadline, what you already tried, a first step), how your estimated mood changed
    message by message, where it seemed hard and why, and the whole chat. In this demo it isn't sent to SJSU.
 
+To compare, open [eqai.study/plain](https://eqai.study/plain): the same assistant, pages and voice with the
+emotion features turned off.
+
 If a student sounds like they are in crisis, the bear stops the task and shares the 988 Suicide and Crisis
 Lifeline. EQ.ai is not a therapist or a medical tool.
+
+## Screenshots
+
+From a rehearsal of the demo, not a real student. The camera preview is blurred for privacy.
+
+**The chat.** On the right, the emotion map shows the estimate from the student's words, face and voice
+(pink), and the tone the bear chose for its reply (blue): here a calmer, slower voice.
+
+![Chat screen: the advisor summary on the left; on the right the emotion map with anger and frustration estimates and a sad, slower reply tone, and the last turns from nervous to frustrated](apps/student-web/docs/screenshots/chat-live-emotion-map.jpg)
+
+**The advisor view**, opened in a new tab after the student clicks OK: how the mood changed message by message,
+and where it seemed hard, with Claude's reason for each moment.
+
+![Advisor view: a mood line from nervous to frustrated across four messages, a short summary of how the mood changed, and three quoted moments where it seemed hard, each with a reason](apps/student-web/docs/screenshots/advisor-view-mood.jpg)
+
+<p>
+  <img src="apps/student-web/docs/screenshots/advisor-view-summary.jpg" width="49%" alt="Advisor view summary: the problem, the Friday deadline, what the student already tried, and a first step for the advisor">
+  <img src="apps/student-web/docs/screenshots/advisor-view-chat.jpg" width="49%" alt="Advisor view chat: the student's messages marked with their estimated mood, nervous then frustrated">
+</p>
+
+**Measured results** on the landing page (held-out test sets; details in [training/RESULTS.md](training/RESULTS.md)).
+
+![Model comparison: ConvNeXt-Tiny face 78.4% accuracy, MobileNetV3-Large face baseline 73.2%, WavLM-base-plus voice 87.5%, EfficientNet-B0 voice baseline 63.5%](apps/student-web/docs/screenshots/results-model-comparison.jpg)
 
 ## How it works
 
@@ -157,8 +185,8 @@ This is how [eqai.study](https://eqai.study) runs. It needs no sudo, and everyth
 ### Tests
 
 ```bash
-python -m unittest discover -s tests          # 113 Python tests
-cd apps/student-web && npm test               # 32 web app tests
+python -m unittest discover -s tests          # 119 Python tests
+cd apps/student-web && npm test               # 33 web app tests
 ```
 
 ## Configuration (`.env`)

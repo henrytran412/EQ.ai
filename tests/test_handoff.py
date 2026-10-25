@@ -142,6 +142,15 @@ class HandoffApi(unittest.TestCase):
         self.assertEqual(client.post("/handoffs", json=handoff_body(timeline=bad)).status_code, 422)
 
 
+class HandoffStoreLimits(unittest.TestCase):
+    def test_store_refuses_new_rows_when_full(self):
+        from services.dialogue.handoffs import Full, HandoffStore
+        store = HandoffStore(":memory:", max_rows=1)
+        store.create({"student_name": "Mai"})
+        with self.assertRaises(Full):
+            store.create({"student_name": "Linh"})
+
+
 class HandoffStoreExpiry(unittest.TestCase):
     def test_handoffs_are_deleted_after_the_retention_time(self):
         from services.dialogue.handoffs import HandoffStore
@@ -151,6 +160,8 @@ class HandoffStoreExpiry(unittest.TestCase):
         now[0] += 59
         self.assertIsNotNone(store.get(hid))
         now[0] += 2
+        store.purge()  # what the service runs every 10 minutes, even with no visitors
+        self.assertEqual(store.db.execute("SELECT COUNT(*) FROM handoffs").fetchone()[0], 0)
         self.assertIsNone(store.get(hid))
 
 

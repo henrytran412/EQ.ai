@@ -1,3 +1,4 @@
 /* Plain mode (/plain): the chat layout with no emotion panel. */
 .chat.plain .chat-body { grid-template-columns: minmax(0, 1fr); }
 .chat.plain .composer .mic { width: 52px; height: 52px; background: var(--ink); }
+.chat.plain .plain-privacy { margin-top: 6px; font-size: 12px; line-height: 1.4; color: var(--stone); max-width: 560px; }
