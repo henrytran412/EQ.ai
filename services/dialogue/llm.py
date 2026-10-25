@@ -100,19 +100,43 @@ Use only what the conversation says. Never add facts, amounts, or deadlines that
 - deadline: the deadline as the student stated it, or null if they didn't mention one.
 - tried: short items for what the student already did or was told in this chat (empty if nothing).
 - next_step: one sentence on what the advisor should check or do first.
-Write in plain English for staff. Do not describe or guess the student's emotions."""
+Write in plain English for staff.
+
+Emotions, only when ESTIMATED MOODS are given (the student agreed to share them):
+- mood: one or two sentences on how the student's estimated mood changed during the chat.
+- hard_moments: for each student message estimated as nervous, confused, frustrated or distress, a short quote \
+of the student's words, that estimate, and one short sentence on what in the conversation likely made it hard \
+(for example an answer that was unclear, or a problem that still isn't fixed).
+These are estimates from EQ.ai's models and can be wrong: write "seemed", never state feelings as facts.
+Without ESTIMATED MOODS, set mood to null and hard_moments to [], and do not describe or guess emotions."""
 
 SUMMARY_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["problem", "deadline", "tried", "next_step"],
+    "required": ["problem", "deadline", "tried", "next_step", "mood", "hard_moments"],
     "properties": {
         "problem": {"type": "string"},
         "deadline": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "tried": {"type": "array", "items": {"type": "string"}},
         "next_step": {"type": "string"},
+        "mood": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "hard_moments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["quote", "estimate", "reason"],
+                "properties": {"quote": {"type": "string"}, "estimate": {"type": "string"}, "reason": {"type": "string"}},
+            },
+        },
     },
 }
+
+
+class HardMoment(BaseModel):
+    quote: str
+    estimate: str
+    reason: str
 
 
 class HandoffSummary(BaseModel):
@@ -120,6 +144,8 @@ class HandoffSummary(BaseModel):
     deadline: str | None
     tried: list[str]
     next_step: str
+    mood: str | None = None
+    hard_moments: list[HardMoment] = []
 
 
 class ModelTurn(BaseModel):
@@ -169,10 +195,15 @@ class ClaudeDialogue:
         """Plain mode (demo comparison): same sources and answer rules, no emotion features."""
         return self._call(PLAIN_SYSTEM, build_plain_message(request, passages), PLAIN_SCHEMA, PlainTurn)
 
-    def summarize(self, topic: str, history) -> HandoffSummary | None:
-        """Advisor's handoff note from the conversation only (no emotion signals: staff see those only with consent)."""
-        convo = "\n".join(f"{t.role}: {t.text}" for t in history)
-        return self._call(SUMMARY_SYSTEM, f"TOPIC: {topic}\n\nCONVERSATION:\n{convo}", SUMMARY_SCHEMA, HandoffSummary)
+    def summarize(self, topic: str, history, timeline=()) -> HandoffSummary | None:
+        """Advisor's handoff note from the conversation. `timeline` (estimated mood per student message) is
+        empty unless the student agreed to share it; the raw face and voice signals are never sent."""
+        convo = "\n".join(f"[{i}] {t.role}: {t.text}" for i, t in enumerate(history))
+        content = f"TOPIC: {topic}\n\nCONVERSATION:\n{convo}"
+        if timeline:
+            moods = "\n".join(f"[{p.turn}] {p.label} ({round(p.confidence * 100)}%)" for p in timeline)
+            content += f"\n\nESTIMATED MOODS (by message number above):\n{moods}"
+        return self._call(SUMMARY_SYSTEM, content, SUMMARY_SCHEMA, HandoffSummary)
 
     def _call(self, system: str, content: str, schema: dict, out: type[BaseModel]):
         """One structured-output request; None on API errors, refusals, truncation or unparseable output."""

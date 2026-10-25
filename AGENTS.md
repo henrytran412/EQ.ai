@@ -56,7 +56,7 @@ Demo scenario: a student has a registration hold from financial aid and the dead
    tone params. A pre-generated short acknowledgment clip (per tone) plays immediately to cover
    the wait. The animated face changes expression and its mouth follows the audio level.
 8. Handoff: if the student consents, create a handoff record with a short summary (problem,
-   deadline, what was tried, consent). The staff console shows it live. Emotion labels are
+   deadline, what was tried, consent). The advisor view (a new tab) shows it. Emotion labels are
    NOT shared with staff unless the student agrees.
 9. UI shows a live emotion timeline so judges can see why the tone changed.
 10. Comparison mode: the same scenario next to a plain chatbot.
@@ -136,7 +136,7 @@ Confirmed direction:
   content (Claude does). Serve it on Vultr behind a token-protected API, with a quantized
   local copy as fallback. Gemini is NOT used.
 - Database: SQLite on the Jetson, for handoffs only (`services/dialogue/handoffs.py`): saved when the student
-  clicks "Connect me", deleted after 24 hours. The advisor console (/staff) needs STAFF_CODE.
+  clicks OK on the handoff confirmation, deleted after 24 hours. The advisor view (/advisor) shows it.
 - Avatar: 2D animated face in the web app (expression states, mouth driven by audio level).
   No photoreal avatar.
 - Edge: NVIDIA Jetson Orin Nano for optional local perception (pretrained models first).
@@ -155,7 +155,7 @@ project-root/
 |-- README.md
 |-- .gitignore
 |-- .env.example            # placeholders only
-|-- apps/student-web/       # React + Vite: landing, setup, chat, advisor case note, /staff console
+|-- apps/student-web/       # React + Vite: landing, setup, chat, advisor view (/advisor), plain mode (/plain)
 |-- services/
 |   |-- dialogue/           # FastAPI: /chat, /handoffs, /voice/token, /signals; Claude, retrieval, policy, handoff DB
 |   `-- perception/         # FastAPI WebSocket: face + voice emotion models (ONNX on the Jetson GPU)

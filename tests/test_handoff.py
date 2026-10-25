@@ -27,32 +27,41 @@ def handoff_body(**overrides):
     return body
 
 
-STAFF = {"Authorization": "Bearer staff-code-1"}
+MOODS = [{"turn": 0, "label": "neutral", "confidence": 0.6}, {"turn": 2, "label": "frustrated", "confidence": 0.75}]
 
 
 class NoteModel:
-    def summarize(self, topic, history):
-        from services.dialogue.llm import HandoffSummary
+    """Writes a mood summary every time, so the tests can check the service drops it when nothing was shared."""
+
+    def __init__(self):
+        self.timelines = []
+
+    def summarize(self, topic, history, timeline=()):
+        from services.dialogue.llm import HandoffSummary, HardMoment
+        self.timelines.append(list(timeline))
         return HandoffSummary(problem="A financial aid hold blocks registration.", deadline="Friday",
-                              tried=["Uploaded the requested form"], next_step="Check the To Do list item.")
+                              tried=["Uploaded the requested form"], next_step="Check the To Do list item.",
+                              mood="Seemed calm at first, then frustrated.",
+                              hard_moments=[HardMoment(quote="I uploaded the form already", estimate="frustrated",
+                                                       reason="The hold is still there after uploading.")])
 
 
 @unittest.skipUnless(HAS_WEB, "fastapi/httpx/anthropic not installed")
 class HandoffApi(unittest.TestCase):
-    def client(self, model, chat_limit=(20, 600), staff_code="staff-code-1"):
+    def client(self, model, chat_limit=(20, 600)):
         from fastapi.testclient import TestClient
         from services.dialogue.app import create_app
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         return TestClient(create_app(model=model, knowledge_dir=Path(tmp.name), allowed_origins=["http://localhost:5173"],
-                                     chat_limit=chat_limit, handoff_db=":memory:", staff_code=staff_code))
+                                     chat_limit=chat_limit, handoff_db=":memory:"))
 
     def test_claude_summary_is_returned(self):
         from services.dialogue.llm import HandoffSummary
         seen = {}
 
         class Model:
-            def summarize(self, topic, history):
+            def summarize(self, topic, history, timeline=()):
                 seen["topic"], seen["history"] = topic, history
                 return HandoffSummary(problem="A financial aid hold blocks registration.", deadline="Friday",
                                       tried=["Uploaded the requested form"], next_step="Check the To Do list item.")
@@ -66,21 +75,22 @@ class HandoffApi(unittest.TestCase):
 
     def test_model_failure_falls_back_to_the_students_own_words(self):
         class Broken:
-            def summarize(self, topic, history):
+            def summarize(self, topic, history, timeline=()):
                 raise RuntimeError("Claude is down")
 
-        body = self.client(Broken()).post("/handoffs", json=handoff_body()).json()
+        body = self.client(Broken()).post("/handoffs", json=handoff_body(timeline=MOODS)).json()
         self.assertEqual(body["note_source"], "fallback")
         self.assertIn("The deadline is Friday.", body["note"]["problem"])
         self.assertNotIn("To Do list", body["note"]["problem"])  # only the student's words, not the assistant's
         self.assertIsNone(body["note"]["deadline"])
-        self.assertEqual(body["status"], "waiting")  # the handoff still goes through
+        self.assertEqual((body["note"]["mood"], body["note"]["hard_moments"]), (None, []))
+        self.assertEqual(body["timeline"], MOODS)  # the shared estimates still reach the advisor view
 
     def test_no_student_messages_skips_claude(self):
         calls = []
 
         class Model:
-            def summarize(self, topic, history):
+            def summarize(self, topic, history, timeline=()):
                 calls.append(topic)
 
         body = self.client(Model()).post("/handoffs", json=handoff_body(history=[])).json()
@@ -99,47 +109,37 @@ class HandoffApi(unittest.TestCase):
         self.assertEqual(client.post("/handoffs", json=handoff_body(history=too_long)).status_code, 422)
         self.assertEqual(client.post("/handoffs", json=handoff_body(student_name="  ")).status_code, 422)
 
-    def test_stored_handoff_reaches_the_students_page_and_the_advisor(self):
+    def test_advisor_view_loads_the_stored_handoff(self):
         client = self.client(NoteModel())
         h = client.post("/handoffs", json=handoff_body()).json()
         self.assertGreaterEqual(len(h["id"]), 20)  # random, unguessable
         self.assertEqual(client.get(f"/handoffs/{h['id']}").json(), h)
-        listed = client.get("/handoffs", headers=STAFF).json()["handoffs"]
-        self.assertEqual([x["id"] for x in listed], [h["id"]])
-        self.assertEqual(listed[0]["transcript"], HISTORY)  # the advisor sees the whole chat with EQ.ai
-        self.assertEqual(listed[0]["note"]["deadline"], "Friday")
+        self.assertEqual(h["transcript"], HISTORY)  # the advisor sees the whole chat with EQ.ai
+        self.assertEqual(h["note"]["deadline"], "Friday")
         self.assertEqual(client.get("/handoffs/not-a-real-id").status_code, 404)
 
-    def test_emotion_estimate_is_stored_only_when_the_student_shares_it(self):
-        client = self.client(NoteModel())
-        self.assertIsNone(client.post("/handoffs", json=handoff_body()).json()["emotion"])
-        shared = client.post("/handoffs", json=handoff_body(emotion={"label": "frustrated", "confidence": 0.7})).json()
-        self.assertEqual(shared["emotion"], {"label": "frustrated", "confidence": 0.7})
+    def test_moods_reach_claude_and_the_advisor_only_when_shared(self):
+        model = NoteModel()
+        client = self.client(model)
+        private = client.post("/handoffs", json=handoff_body()).json()
+        self.assertEqual(model.timelines[-1], [])
+        self.assertEqual(private["timeline"], [])
+        self.assertEqual((private["note"]["mood"], private["note"]["hard_moments"]), (None, []))  # dropped in code
+        shared = client.post("/handoffs", json=handoff_body(timeline=MOODS)).json()
+        self.assertEqual([p.turn for p in model.timelines[-1]], [0, 2])
+        self.assertEqual(shared["timeline"], MOODS)
+        self.assertIn("frustrated", shared["note"]["mood"])
+        self.assertEqual(shared["note"]["hard_moments"][0]["estimate"], "frustrated")
 
-    def test_advisor_console_needs_the_access_code(self):
+    def test_mood_points_must_belong_to_student_messages(self):
         client = self.client(NoteModel())
-        self.assertEqual(client.get("/handoffs").status_code, 401)
-        self.assertEqual(client.get("/handoffs", headers={"Authorization": "Bearer wrong"}).status_code, 401)
-        self.assertEqual(client.get("/handoffs", headers=STAFF).status_code, 200)
-        unset = self.client(NoteModel(), staff_code="")  # no STAFF_CODE: the console stays closed
-        self.assertEqual(unset.get("/handoffs", headers=STAFF).status_code, 503)
-
-    def test_advisor_takes_the_chat_replies_and_closes_it(self):
-        client = self.client(NoteModel())
-        hid = client.post("/handoffs", json=handoff_body()).json()["id"]
-        self.assertEqual(client.post(f"/handoffs/{hid}/status", json={"status": "active"}).status_code, 401)
-        taken = client.post(f"/handoffs/{hid}/status", json={"status": "active", "staff_id": "Advisor (demo)"},
-                            headers=STAFF).json()
-        self.assertEqual((taken["status"], taken["staff_id"]), ("active", "Advisor (demo)"))
-        client.post(f"/handoffs/{hid}/messages", json={"text": "Hi Mai, I can see your hold."}, headers=STAFF)
-        h = client.post(f"/handoffs/{hid}/messages", json={"text": "  Thank you!  "}).json()
-        self.assertEqual([(m["from"], m["text"]) for m in h["messages"]],
-                         [("staff", "Hi Mai, I can see your hold."), ("student", "Thank you!")])
-        self.assertGreater(h["version"], taken["version"])  # pages keep the newest version
-        closed = client.post(f"/handoffs/{hid}/status", json={"status": "resolved"}, headers=STAFF).json()
-        self.assertEqual(closed["status"], "resolved")
-        self.assertEqual(client.post(f"/handoffs/{hid}/messages", json={"text": "one more"}).status_code, 409)
-        self.assertEqual(client.post(f"/handoffs/{hid}/messages", json={"text": "  "}).status_code, 422)
+        wrong = [{"turn": 1, "label": "confused", "confidence": 0.5},  # message 1 is EQ.ai's
+                 {"turn": 9, "label": "sad", "confidence": 0.5}]  # there is no message 9
+        h = client.post("/handoffs", json=handoff_body(timeline=wrong)).json()
+        self.assertEqual(h["timeline"], [])
+        self.assertIsNone(h["note"]["mood"])
+        bad = [{"turn": 0, "label": "neutral", "confidence": 2}]
+        self.assertEqual(client.post("/handoffs", json=handoff_body(timeline=bad)).status_code, 422)
 
 
 class HandoffStoreExpiry(unittest.TestCase):
@@ -152,8 +152,6 @@ class HandoffStoreExpiry(unittest.TestCase):
         self.assertIsNotNone(store.get(hid))
         now[0] += 2
         self.assertIsNone(store.get(hid))
-        self.assertEqual(store.all(), [])
-        self.assertIsNone(store.add_message(hid, "student", "hello?"))
 
 
 def fake_anthropic(reply_text: str, stop_reason: str = "end_turn"):
@@ -176,14 +174,30 @@ class ClaudeCalls(unittest.TestCase):
 
     def test_summary_is_parsed_and_gets_no_emotion_signals(self):
         from services.dialogue.llm import ClaudeDialogue
-        out = {"problem": "Hold blocks registration.", "deadline": "Friday", "tried": [], "next_step": "Check To Do list."}
+        out = {"problem": "Hold blocks registration.", "deadline": "Friday", "tried": [], "next_step": "Check To Do list.",
+               "mood": None, "hard_moments": []}
         client, sent = fake_anthropic(json.dumps(out))
         summary = ClaudeDialogue(client=client, model="claude-opus-5-5").summarize("financial_aid_hold", self.turns())
         self.assertEqual(summary.model_dump(), out)
         prompt = sent["messages"][0]["content"]
         self.assertIn("The deadline is Friday.", prompt)
-        self.assertNotIn("SIGNALS", prompt)  # emotion estimates reach staff only with the student's consent
+        self.assertNotIn("SIGNALS", prompt)  # raw face and voice signals never go to the summary
+        self.assertNotIn("ESTIMATED MOODS", prompt)  # moods only when the student shares them
         self.assertEqual(sent["output_config"]["format"]["type"], "json_schema")
+
+    def test_shared_moods_are_numbered_by_message(self):
+        from services.dialogue.app import MoodPoint
+        from services.dialogue.llm import ClaudeDialogue
+        out = {"problem": "Hold.", "deadline": None, "tried": [], "next_step": "Check.", "mood": "Seemed frustrated.",
+               "hard_moments": [{"quote": "I uploaded the form already", "estimate": "frustrated", "reason": "Still blocked."}]}
+        client, sent = fake_anthropic(json.dumps(out))
+        summary = ClaudeDialogue(client=client, model="claude-opus-5-5").summarize(
+            "financial_aid_hold", self.turns(), [MoodPoint(**m) for m in MOODS])
+        self.assertEqual(summary.hard_moments[0].reason, "Still blocked.")
+        prompt = sent["messages"][0]["content"]
+        self.assertIn("[2] student: I uploaded the form already.", prompt)
+        self.assertIn("ESTIMATED MOODS", prompt)
+        self.assertIn("[2] frustrated (75%)", prompt)
 
     def test_refusal_or_bad_json_gives_none(self):
         from services.dialogue.llm import ClaudeDialogue

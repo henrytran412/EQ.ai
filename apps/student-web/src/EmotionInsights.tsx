@@ -11,13 +11,12 @@ type Props = {
   voiceOn: boolean
   service: 'unconfigured' | 'connected' | 'disconnected'
   demo: boolean
-  withPerson: boolean
   face: Estimate | null
   voice: Estimate | null
 }
 const percent = (n: number) => `${Math.round(Math.max(0, Math.min(1, n)) * 100)}%`
 
-export default function EmotionInsights({ sources, estimates, tone, cameraOn, voiceOn, service, demo, withPerson, face, voice }: Props) {
+export default function EmotionInsights({ sources, estimates, tone, cameraOn, voiceOn, service, demo, face, voice }: Props) {
   const latest = estimates.at(-1)
   const speed = tone.speed < 0.97 ? 'Slower pace' : tone.speed > 1.03 ? 'Faster pace' : 'Normal pace'
   const empty = (label: string) => {
@@ -36,7 +35,7 @@ export default function EmotionInsights({ sources, estimates, tone, cameraOn, vo
       <div className="signal-summary">
         <div><span><i className="map-dot" /> Final state prediction</span><strong data-empty={!latest || undefined}>{latest?.label ?? 'No prediction yet'}</strong>
           <small>{latest ? `${percent(latest.confidence)} model confidence${demo ? ' · scripted demo' : ''}` : 'Start chatting to see an estimate'}</small></div>
-        <div><span><i className="map-ring" /> {withPerson ? 'Last assistant tone' : 'Assistant reply tone'}</span><strong>{tone.emotion}</strong><small>{speed} · {tone.speed.toFixed(2)}×</small></div>
+        <div><span><i className="map-ring" /> Assistant reply tone</span><strong>{tone.emotion}</strong><small>{speed} · {tone.speed.toFixed(2)}×</small></div>
       </div>
       <section className="signal-section" aria-labelledby="signals-title">
         <div className="insight-section-heading"><h3 id="signals-title">Face &amp; voice confidence</h3><span>Latest reading</span></div>

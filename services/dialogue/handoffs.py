@@ -1,8 +1,8 @@
-"""Handoff store (SQLite): what an advisor needs to pick up a student's case, on any device.
+"""Handoff store (SQLite): what an advisor would get when a student asks for a person.
 
-A row exists only after the student clicks "Connect me", and holds what the consent screen lists: first name,
-topic, the case note, the chat with EQ.ai, the emotion estimate only if the student shared it, then the messages
-between the student and the advisor. Rows are deleted RETENTION_SEC after they were created.
+A row exists only after the student clicks OK on the handoff confirmation, and holds what that screen lists:
+first name, topic, Claude's case note, the chat with EQ.ai, and the estimated mood per message only if the
+student agreed to share it. Rows are deleted RETENTION_SEC after they were created.
 """
 
 import json
@@ -12,11 +12,6 @@ import threading
 import time
 
 RETENTION_SEC = 24 * 3600
-MAX_MESSAGES = 200  # per handoff, so one chat can't grow without bound
-
-
-class Closed(Exception):
-    """The handoff is resolved, or already has MAX_MESSAGES messages."""
 
 
 class HandoffStore:
@@ -40,45 +35,11 @@ class HandoffStore:
 
     def create(self, fields: dict) -> dict:
         now = self.clock()
-        # The id is a random 128-bit secret: the student's page uses it to read its own handoff.
-        h = {**fields, "id": secrets.token_urlsafe(16), "version": 1, "status": "waiting", "staff_id": None,
-             "messages": [], "created_at": int(now * 1000)}
+        # The id is a random 128-bit secret: only the student's page and its advisor-view tab know it.
+        h = {**fields, "id": secrets.token_urlsafe(16), "created_at": int(now * 1000)}
         self._run(lambda db: db.execute("INSERT INTO handoffs VALUES (?, ?, ?)", (h["id"], now, json.dumps(h))))
         return h
 
     def get(self, hid: str) -> dict | None:
         row = self._run(lambda db: db.execute("SELECT data FROM handoffs WHERE id = ?", (hid,)).fetchone())
         return json.loads(row[0]) if row else None
-
-    def all(self) -> list[dict]:
-        rows = self._run(lambda db: db.execute("SELECT data FROM handoffs ORDER BY created_at DESC").fetchall())
-        return [json.loads(r[0]) for r in rows]
-
-    def _update(self, hid: str, change) -> dict | None:
-        """change(h) edits the handoff in place or raises Closed; None if there is no such handoff."""
-        def run(db):
-            row = db.execute("SELECT data FROM handoffs WHERE id = ?", (hid,)).fetchone()
-            if not row:
-                return None
-            h = json.loads(row[0])
-            change(h)
-            h["version"] += 1  # pages keep the newest version they have seen
-            db.execute("UPDATE handoffs SET data = ? WHERE id = ?", (json.dumps(h), hid))
-            return h
-        return self._run(run)
-
-    def add_message(self, hid: str, sender: str, text: str) -> dict | None:
-        def change(h):
-            if h["status"] == "resolved" or len(h["messages"]) >= MAX_MESSAGES:
-                raise Closed
-            h["messages"].append({"from": sender, "text": text, "at": int(self.clock() * 1000)})
-        return self._update(hid, change)
-
-    def set_status(self, hid: str, status: str, staff_id: str) -> dict | None:
-        def change(h):
-            if h["status"] == "resolved":
-                raise Closed
-            h["status"] = status
-            if status == "active":
-                h["staff_id"] = staff_id
-        return self._update(hid, change)

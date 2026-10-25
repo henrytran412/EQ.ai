@@ -18,6 +18,8 @@ registration opens Friday.
   - If the bear sounds muffled, the headset has switched to "hands-free" mode. Set the sound output to the laptop speakers, or use wired earbuds.
 - [ ] Turn on Windows Focus (Do not disturb) and close other tabs.
 - [ ] Reload the page before each take, so every take starts with a fresh chat.
+- [ ] If Chrome blocks the advisor-view tab, allow pop-ups for eqai.study, or click **Open the advisor view**
+  in the chat.
 - [ ] Recording: record each side as its own clip, then put them side by side in **Clipchamp** (built into Windows 11).
 - [ ] Record the narration afterward as a voice-over. If you narrate live, the bear transcribes it.
 
@@ -57,22 +59,15 @@ Setup on EQ.ai:
 **Rehearsal result (2026-10-24, typed text, no face or voice signals, live site):** the states were neutral 0.6, then confused 0.7, then frustrated 0.75 (it asked "Am I reading that right?" and offered an advisor), then frustrated 0.7 (it offered an advisor). Claude took 2–3 s for lines 1–2 and 5–7 s for lines 3–4, so trim those pauses when you edit.
 
 Then click **Talk to a person**:
-- Show the choice to share your emotion estimate, which is **off** by default.
-- Click **Connect me**.
-- Hold the **case note** on screen for about 5 seconds. It should list the problem (a hold blocking
-  registration), the deadline (Friday), what you tried (uploaded tax documents three days ago, called with
-  no answer), and a first step for the advisor.
-
-Then the advisor answers, on a **second device** (your phone, or another browser window):
-1. Open **https://eqai.study/staff** and enter the advisor access code.
-2. The new handoff appears within a few seconds. Click it: the case note is on top, and **Full chat with
-   EQ.ai** shows everything the student said.
-3. Click **Take this chat**. The student's page says "Advisor (demo) joined the chat."
-4. Reply, for example: "Hi! I read your summary and your chat, so no need to explain again. I'll check your
-   To Do List now." The reply shows up in the student's chat within about 2 seconds, and the bear reads it out.
-5. Click **Mark resolved** to close the chat.
-
-You play the advisor here, so say so in the video ("I'm playing the advisor"). Don't invent real SJSU answers.
+- The bear asks you to confirm. **Tick "Also share how my mood seemed to change"**: that fills the emotion
+  part of the advisor view.
+- Click **OK**. A new tab opens with the **advisor view**. Claude needs a few seconds to write it.
+- Hold it on screen for about 10 seconds and scroll slowly:
+  - the summary: a hold blocking registration, the Friday deadline, and what you tried (tax documents
+    uploaded three days ago, no answer on the phone)
+  - the mood line, for example neutral → confused → frustrated
+  - **Where it seemed hard**, with Claude's reason for each moment
+  - the chat, with the hard messages marked
 
 Plain mode gets the same four lines. It has no "Talk to a person" button, so the student is left to call
 the office alone. That contrast is the point.
@@ -99,8 +94,7 @@ it in the video. It shows the system is an estimate that checks with you, which 
 | 0:32–0:50 | Split screen, line 1 | "On the left, the same assistant with its emotion features turned off. On the right, EQ.ai. Same words, same official pages." |
 | 0:50–1:15 | Split screen, line 2 | "When I'm confused, the plain version answers in the same voice and at the same speed. EQ.ai uses simpler words, and Cartesia Sonic speaks calmer and slower." |
 | 1:15–1:40 | Split screen, line 3 | "When I'm frustrated, EQ.ai doesn't assume. It asks: am I reading that right? Emotion estimates can be wrong, especially with accents, so it checks first." |
-| 1:40–2:10 | Line 4, then the handoff and case note | "I ask for a person. I decide whether my emotion estimate is shared. The advisor gets a case note that Claude wrote from our chat: the problem, the deadline, what I tried, and a first step." |
-| 2:10–2:25 | Advisor console on a second device, then the reply in the student's chat | "On the advisor's side, the case note and the whole chat are already there. I'm playing the advisor: I take the chat and reply, and it shows up for the student. I explain it once." |
+| 1:40–2:25 | Line 4, then **OK**, then the advisor view tab | "I ask for a person and choose to share how my mood changed. This is what the advisor gets: Claude's summary, how my mood changed message by message, and where it got hard, and why. I explain it once." |
 | 2:25–2:50 | Emotion map, then a quick shot of the Jetson | "Cartesia Ink 2 turns my speech into text. My own face and voice models run on this NVIDIA Jetson, and only labels leave it. Claude reads my words and those labels, estimates my state, and answers only from official SJSU pages, with citations. Safety rules live in code: voice alone never triggers an action, and distress always shows the 988 lifeline." |
 | 2:50–3:00 | Landing page | "EQ.ai notices, it adapts, and you only explain it once. Try it at eqai.study." |
 

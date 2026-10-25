@@ -17,10 +17,10 @@ Browser (apps/student-web)          Jetson / laptop (services/perception, :8001)
   Cartesia Ink STT  <-- direct ---   (mic audio to Cartesia cloud)
   Cartesia Sonic TTS <-- direct --   (reply text + speed/emotion from /chat)
   POST /handoffs -------------->    Claude writes the advisor case note (problem, deadline, what was
-                                     tried, first step) from the chat only, never the emotion signals,
-                                     and the handoff is saved in SQLite (services/dialogue/handoffs.py, 24 h).
-  GET /handoffs/{id} every 2 s <-    advisor console (/staff, access code): GET /handoffs every 2 s,
-  POST /handoffs/{id}/messages        POST .../status (take, resolve) and .../messages (reply)
+                                     tried, first step) from the chat, plus how the mood changed and what
+                                     seemed hard if the student shared their mood estimates; saved in
+                                     SQLite (services/dialogue/handoffs.py, deleted after 24 h).
+  GET /handoffs/{id} <-----------    the advisor view (/advisor/?id=..., a new tab) loads it.
 ```
 
 ## Public deployment (https://eqai.study)

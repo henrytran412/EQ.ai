@@ -10,8 +10,8 @@ trap 'rm -rf "$OUT"' EXIT
 
 (cd apps/student-web && npm test >/dev/null && \
   VITE_API_URL="$SITE" VITE_PERCEPTION_URL="${SITE/https:/wss:}" npx vite build --outDir "$OUT" --emptyOutDir)
-# /staff is the advisor console route, /plain the emotion-off comparison page for the demo video
-for route in staff plain; do mkdir -p "$OUT/$route" && cp "$OUT/index.html" "$OUT/$route/index.html"; done
+# /advisor is the advisor view (a new tab after a handoff), /plain the emotion-off comparison page for the demo video
+for route in advisor plain; do mkdir -p "$OUT/$route" && cp "$OUT/index.html" "$OUT/$route/index.html"; done
 if grep -rqE "sk[-_](ant|car)[A-Za-z0-9]" "$OUT"; then echo "refusing to deploy: an API key is in the bundle"; exit 1; fi
 
 ssh jetson 'rm -rf ~/eq-ai/apps/student-web/dist.new && mkdir -p ~/eq-ai/apps/student-web/dist.new'

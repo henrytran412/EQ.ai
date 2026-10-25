@@ -27,8 +27,8 @@ EQ.ai is a voice assistant, shown as a friendly cartoon bear, for **internationa
 | frustrated | checks first ("Am I reading that right?"), then offers an advisor | calm, 0.9× |
 | distress | stops the task, shares the 988 Suicide & Crisis Lifeline, offers a person | calm, 0.8× |
 
-5. Clicking **Talk to a person** at any time turns the conversation into an **advisor case note**: the problem, any deadline, what the student already tried, and a first step. The student decides whether to share their emotion estimate, which is off by default.
-6. The handoff goes to an **advisor console** on any device. The advisor sees the case note and the student's whole chat with EQ.ai, takes the chat, and replies. The reply appears in the student's chat, so the student **explains it once**. In this demo, the advisor is whoever has the console's access code, not SJSU staff.
+5. Clicking **Talk to a person** at any time brings up a confirmation that lists what will be shared. The student decides whether to share how their mood changed, which is off by default.
+6. After **OK**, a new tab opens with the **advisor view**: Claude's summary (the problem, any deadline, what the student already tried, a first step), how the student's estimated mood changed message by message, and **where it seemed hard and why**, next to the whole chat. The advisor starts with the full context, so the student **explains it once**. In this demo it isn't sent to SJSU staff.
 
 An **emotion map** shows what the system estimated, from which signal (face, voice or words), and how confident it is, so you can see why the tone changed. The bear never claims to feel or understand emotions. It shows an estimate and asks before acting on it.
 
@@ -51,7 +51,7 @@ Browser (eqai.study)                       Jetson Orin Nano
   reply --------> Cartesia Sonic 3.5 (speaks with the chosen emotion and speed)
 ```
 
-**Claude (Anthropic API, Sonnet 5.5 at high effort).** Each student message gets one Claude call with **structured outputs** (a JSON schema). Claude reads the student's words plus short labels from the face and voice models, never images or audio. It returns the estimated state, its confidence, and the reply. The reply may only use the official passages it was given. Those come from a BM25 search over **26 official SJSU pages (523 passages)**, copied word for word. A second Claude call writes the advisor case note from the conversation only.
+**Claude (Anthropic API, Sonnet 5.5 at high effort).** Each student message gets one Claude call with **structured outputs** (a JSON schema). Claude reads the student's words plus short labels from the face and voice models, never images or audio. It returns the estimated state, its confidence, and the reply. The reply may only use the official passages it was given. Those come from a BM25 search over **26 official SJSU pages (523 passages)**, copied word for word. A second Claude call writes the advisor case note from the conversation; if the student shares their mood estimates, it also describes how the mood changed and what seemed to make it hard.
 
 **Where Claude could go wrong, and what I did about it:**
 - **Wrong aid information.** Claude answers only from the retrieved official pages, cites them, says when the pages don't cover the question, and never guesses eligibility or deadlines.
@@ -59,7 +59,7 @@ Browser (eqai.study)                       Jetson Orin Nano
   - Voice alone never triggers an action. If only the voice model thinks a student is upset, the bear asks instead of assuming.
   - Frustration is confirmed with the student before an advisor is suggested.
 - **A student in crisis.** Distress always shows 988 and offers a person, whatever the model writes. That rule is in code, with tests, not only in the prompt.
-- **A wrong case note.** The note is written from the conversation only and never describes emotions. If Claude fails, the advisor sees the student's own words, labeled "In their words", instead of an invented summary.
+- **A wrong case note.** The note is written from the conversation only. It talks about mood only when the student shared their estimates, and only as estimates ("seemed"); without consent, the service removes any mood text in code. If Claude fails, the advisor sees the student's own words, labeled "In their words", instead of an invented summary.
 - **Privacy.** Only text and labels go to Claude. Nothing is stored unless the student asks for a person; then the handoff is kept for 24 hours and deleted.
 
 **Cartesia: the voice is the product.** In EQ.ai, the adaptation is something you hear.
@@ -76,7 +76,7 @@ Browser (eqai.study)                       Jetson Orin Nano
 
 **The live site.** The Jetson runs the React + TypeScript web app, a FastAPI dialogue service and a WebSocket perception service. Each is bound to localhost and restarts itself after a crash. The tunnel exposes only the public routes, and paid API calls are rate-limited per visitor. The project has **113 Python tests and 32 web tests**.
 
-**The handoff database.** Handoffs live in **SQLite** on the Jetson: free, built into Python, nothing to set up. A row is created only when the student clicks "Connect me", holds only what the consent screen lists, and is deleted after 24 hours. The advisor console needs an access code, and the student's page and the console check for new messages every 2 seconds.
+**The handoff database.** Handoffs live in **SQLite** on the Jetson: free, built into Python, nothing to set up. A row is created only when the student clicks OK on the handoff confirmation, holds only what that screen lists, and is deleted after 24 hours. The advisor view loads it in a new tab by a random, unguessable id.
 
 ## Challenges we ran into
 
@@ -100,7 +100,7 @@ Browser (eqai.study)                       Jetson Orin Nano
   - **Full face pipeline on the Jetson:** 78.1% on 210 test faces, which matches the offline test.
   - Every number was measured, and the README says plainly what wasn't.
 - **Safety that doesn't depend on the model behaving.** The rules are code with tests.
-- **Privacy by default.** Nothing is kept unless the student asks for a person, and handoffs are deleted after 24 hours. The camera is opt-in. Images and audio are never stored. An advisor sees the emotion estimate only if the student agrees.
+- **Privacy by default.** Nothing is kept unless the student asks for a person, and handoffs are deleted after 24 hours. The camera is opt-in. Images and audio are never stored. An advisor sees mood estimates only if the student agrees.
 - **A solo build.** Data cleaning, two trained models, edge GPU deployment, the voice pipeline, the Claude integration, the web app and the public domain were all built by one person in one weekend.
 
 ## What we learned
@@ -115,7 +115,7 @@ Browser (eqai.study)                       Jetson Orin Nano
 ## What's next for EQ.ai
 
 - **Test it with international students at SJSU**, with their consent, and measure accuracy on real, accented speech. RAVDESS is acted English speech, so I expect lower accuracy in real use, and I won't claim otherwise until it's measured.
-- **Connect the advisor console to real SJSU advisors**, with the student's consent, together with offices like Financial Aid and ISSS.
+- **Send the advisor view to real SJSU advisors**, with the student's consent, together with offices like Financial Aid and ISSS.
 - **Reply in the student's first language**, while keeping the official sources linked.
 - **Faster replies**, by streaming Claude's answer into Sonic sentence by sentence.
 - **More flows**, starting with scholarships and visa-status questions. These will give official information only, always point to ISSS, and never give immigration advice.

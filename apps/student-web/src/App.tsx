@@ -5,7 +5,7 @@ import './chat.css'
 import Landing from './Landing'
 import { askAssistant, isDemo } from './api'
 import CaseNoteFields from './CaseNoteView'
-import { createHandoff, fetchHandoff, poll, sendHandoffMessage, type Handoff } from './handoff'
+import { advisorUrl, createHandoff, type Handoff } from './handoff'
 import { connectPerception, perceptionOn, streamFrames, type Estimate, type Reading } from './perception'
 import { TOPICS, type ChatResponse, type EmotionEstimate, type Expression } from './policy'
 import type { Tone } from './cartesia'
@@ -295,10 +295,11 @@ function DeviceSelect(props: {
 }
 
 type Msg = {
-  from: 'student' | 'assistant' | 'staff' | 'system'
+  from: 'student' | 'assistant' | 'system'
   text: string
   citations?: ChatResponse['reply']['citations']
   uncertainty?: string
+  estimate?: EmotionEstimate // on EQ.ai's reply: the estimated mood after the student message just before it
 }
 type Status = 'idle' | 'listening' | 'thinking' | 'speaking'
 
@@ -344,47 +345,26 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
   // Latest values for async callbacks (speech results, other tabs), which would otherwise see stale state.
-  const live = useRef({ settings, handoff, msgs, send, holding })
+  const live = useRef({ settings, msgs, send, holding })
   live.current = { ...live.current, settings, msgs, send, holding }
 
   function say(text: string, expr: Expression, tone: Tone = { speed: 1, emotion: 'content' }, from: Msg['from'] = 'assistant', extra: Partial<Msg> = {}) {
     setMsgs((m) => [...m, { from, text, ...extra }])
     if (from === 'system') return
     setExpression(expr)
-    // The bear's mouth only moves for its own words, not when reading out the advisor's.
-    const onStart =
-      from === 'staff'
-        ? () => {}
-        : () => {
-            setStatus('speaking')
-            const t = timing.current
-            if (from === 'assistant' && t?.replied) {
-              const now = performance.now()
-              setLatency({ answer: t.replied - t.start, voice: now - t.replied })
-              console.info(`[latency] answer ${Math.round(t.replied - t.start)} ms, voice ${Math.round(now - t.replied)} ms`)
-              timing.current = null
-            }
-          }
+    const onStart = () => {
+      setStatus('speaking')
+      const t = timing.current
+      if (from === 'assistant' && t?.replied) {
+        const now = performance.now()
+        setLatency({ answer: t.replied - t.start, voice: now - t.replied })
+        console.info(`[latency] answer ${Math.round(t.replied - t.start)} ms, voice ${Math.round(now - t.replied)} ms`)
+        timing.current = null
+      }
+    }
     // Cancelling speech fires its end event late; only reset if nothing else (listening, thinking) took over.
     if (live.current.settings.output === 'voice') speak(text, tone, onStart, () => setStatus((s) => (s === 'speaking' ? 'idle' : s)))
     else setStatus('idle')
-  }
-
-  // A newer server copy of this chat's handoff: announce the advisor joining, their replies, and the close.
-  function applyHandoff(h: Handoff) {
-    const prev = live.current.handoff
-    if (!prev || h.id !== prev.id || h.version <= prev.version) return // replies can arrive out of order
-    live.current.handoff = h
-    setHandoff(h)
-    if (prev.status === 'waiting' && h.status === 'active') say(`${h.staff_id ?? 'An advisor'} joined the chat.`, 'happy', undefined, 'system')
-    h.messages
-      .slice(prev.messages.length)
-      .filter((m) => m.from === 'staff')
-      .forEach((m) => say(m.text, 'neutral', undefined, 'staff'))
-    if (h.status === 'resolved' && prev.status !== 'resolved') {
-      say('The advisor closed this chat. I hope that helped!', 'happy', undefined, 'system')
-      setExpression('happy')
-    }
   }
 
   const greeted = useRef(false)
@@ -426,27 +406,12 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     }
   }, [settings.camera])
 
-  // While waiting for or talking with an advisor, check the stored handoff every 2 s; stops once it is closed.
-  const pollId = handoff && !handoff.local && handoff.status !== 'resolved' ? handoff.id : null
-  useEffect(() => {
-    if (!pollId) return
-    return poll(async () => applyHandoff(await fetchHandoff(pollId)))
-  }, [pollId])
-
   async function send(raw: string) {
     const text = raw.trim()
     if (!text || status === 'thinking') return
     setDraft('')
     setNotice('')
     stopSpeaking()
-
-    const h = live.current.handoff
-    if (h && h.status !== 'resolved') {
-      setMsgs((m) => [...m, { from: 'student', text }])
-      // A handoff kept only on this page (demo mode, or the service was unreachable) has no advisor to reach.
-      if (!h.local) sendHandoffMessage(h.id, text).then(applyHandoff, () => setNotice("Couldn't send that to the advisor. Please try again."))
-      return
-    }
 
     const history = msgs
       .filter((m) => m.from === 'student' || m.from === 'assistant')
@@ -471,6 +436,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
       say(res.reply.text, res.tone.avatar_expression, res.tone.tts_params, 'assistant', {
         citations: res.reply.citations,
         uncertainty: res.reply.uncertainty,
+        estimate: res.tone.confidence > 0 ? { label: res.tone.state, confidence: res.tone.confidence } : undefined,
       })
     } catch (e) {
       say(
@@ -567,33 +533,32 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   }
 
   async function confirmHandoff() {
-    const history = msgs
-      .filter((m) => m.from === 'student' || m.from === 'assistant')
-      .map((m) => ({ role: m.from as 'student' | 'assistant', text: m.text }))
+    // Opened now, inside the click, so the browser doesn't block it as a pop-up; it shows the note once saved.
+    const tab = isDemo ? null : window.open('/advisor/', '_blank')
+    const turns = msgs.filter((m) => m.from === 'student' || m.from === 'assistant').slice(-40) // the service takes 40
+    const history = turns.map((m) => ({ role: m.from as 'student' | 'assistant', text: m.text }))
+    // Each estimate sits on EQ.ai's reply and belongs to the student message just before it.
+    const timeline = shareEmotion
+      ? turns.flatMap((m, i) => (m.estimate && turns[i - 1]?.from === 'student' ? [{ turn: i - 1, ...m.estimate }] : []))
+      : []
     setConsentOpen(false)
-    setStatus('thinking') // new messages wait until the handoff exists
-    const emotion = shareEmotion ? estimates.at(-1) : undefined
-    // Shown while Claude writes the case note on the server (only from the chat, never the emotion signals).
-    const pending: Handoff = {
-      id: 'pending', version: 0, student_name: settings.name, topic: topic.id, emotion, transcript: history,
-      status: 'waiting', messages: [], created_at: Date.now(), local: true,
-    }
-    live.current.handoff = pending
-    setHandoff(pending)
-    const h = await createHandoff({ session_id: sessionId, topic: topic.id, student_name: settings.name, history, emotion })
-    live.current.handoff = h
+    setStatus('thinking')
+    // Shown while Claude writes the case note on the server.
+    setHandoff({ id: 'pending', student_name: settings.name, topic: topic.id, hard_moments: [], timeline, transcript: history, created_at: Date.now(), local: true })
+    const h = await createHandoff({ session_id: sessionId, topic: topic.id, student_name: settings.name, history, timeline })
     setHandoff(h)
     setStatus('idle')
+    if (h.local) tab?.close()
+    else if (tab) tab.location.href = advisorUrl(h.id)
     say(
       h.local
-        ? `Here's a summary for an advisor, so you won't have to explain it again. ${isDemo ? "This demo isn't connected to an advisor" : "I couldn't send it just now"}, so please share it with the office.`
-        : "I sent this summary to an advisor, so you won't have to explain it again. They'll reply right here. In this demo, the advisor isn't SJSU staff yet.",
+        ? `Here's a summary for an advisor, so you won't have to explain it again. ${isDemo ? "This demo isn't connected to the service" : "I couldn't save it just now"}, so please share it with the office.`
+        : "Here's what an advisor would see, so you won't have to explain it again. I opened it in a new tab. In this demo, it isn't sent to SJSU staff.",
       'happy',
     )
   }
 
   const latest = estimates.at(-1)
-  const withPerson = !!handoff && handoff.status !== 'resolved'
   const voiceOnly = settings.input === 'voice'
   const sources = [
     { label: 'final', probs: latest ? { [latest.label]: latest.confidence } : null },
@@ -602,14 +567,8 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     { label: 'face', probs: probsOf(reading?.face) },
   ]
   const face = reading?.face
-  const statusText = handoff && withPerson
-    ? handoff.status === 'waiting'
-      ? handoff.id === 'pending'
-        ? 'Writing a summary for the advisor…'
-        : handoff.local
-          ? 'Summary ready. Please share it with the office.'
-          : 'Waiting for an advisor (demo: not SJSU staff)'
-      : `You're chatting with ${handoff.staff_id ?? 'an advisor'}`
+  const statusText = handoff?.id === 'pending'
+    ? 'Writing a summary for the advisor…'
     : {
         idle: voiceOnly ? 'Tap the mic to talk' : 'Type your message below',
         listening: holding
@@ -629,7 +588,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         </div>
         <div className="chat-actions">
           <button type="button" className="btn btn-outline btn-small" aria-expanded={settingsOpen} aria-controls="chat-settings" onClick={() => setSettingsOpen(!settingsOpen)}>Chat settings</button>
-          {!withPerson && !consentOpen && <button className="btn btn-secondary btn-small" onClick={requestHandoff}>Talk to a person <span aria-hidden="true">↗</span></button>}
+          {!consentOpen && handoff?.id !== 'pending' && <button className="btn btn-secondary btn-small" onClick={requestHandoff}>Talk to a person <span aria-hidden="true">↗</span></button>}
         </div>
         <div className="chat-settings" id="chat-settings" hidden={!settingsOpen}>
           <IOChoice
@@ -675,7 +634,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         <section className="stage-wrap" aria-label="Assistant status">
           <div className="stage"><Bear expression={expression} speaking={status === 'speaking'} listening={status === 'listening'} /></div>
           <div className="assistant-presence">
-            <h2>{withPerson ? 'Your advisor conversation' : 'A little clarity, together.'}</h2>
+            <h2>A little clarity, together.</h2>
             <p className="status" aria-live="polite"><span className={`presence-dot presence-${status}`} aria-hidden="true" />{statusText}</p>
           </div>
           <span className="session-note">One step at a time</span>
@@ -685,7 +644,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         <div className="messages" role="log" aria-label="Messages" aria-live="polite" aria-relevant="additions text">
           {msgs.map((m, i) => (
             <div key={i} className={`msg msg-${m.from}`}>
-              {m.from !== 'system' && <span className="message-author">{m.from === 'student' ? 'You' : m.from === 'staff' ? handoff?.staff_id ?? 'Advisor' : 'EQ.ai'}</span>}
+              {m.from !== 'system' && <span className="message-author">{m.from === 'student' ? 'You' : 'EQ.ai'}</span>}
               {m.text}
               {!!m.citations?.length && (
                 <small>
@@ -724,7 +683,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           </div>
         )}
 
-        {offerHandoff && !consentOpen && !withPerson && (
+        {offerHandoff && !consentOpen && (
           <div className="chips">
             <button className="btn btn-secondary btn-small" onClick={requestHandoff}>
               Connect me with a person
@@ -739,16 +698,17 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           <div className="card panel">
             <strong>Here's what I'll share with the advisor</strong>
             <p className="muted">
-              Your name ({settings.name}), the topic ({topic.label}), and what you told me in this chat. It's kept for
-              24 hours so the advisor can help, then deleted.
+              Your name ({settings.name}), the topic ({topic.label}), and a summary of this chat. It's kept for 24 hours,
+              then deleted. Click OK to see what the advisor gets, in a new tab.
             </p>
             <label className="toggle">
               <input type="checkbox" checked={shareEmotion} onChange={(e) => setShareEmotion(e.target.checked)} />
-              Also share my emotion estimate{latest ? ` (${latest.label})` : ''}. Off unless you turn it on.
+              Also share how my mood seemed to change during the chat (EQ.ai's estimates, which can be wrong). Off unless
+              you turn it on.
             </label>
             <div className="row" style={{ gap: 8 }}>
               <button className="btn btn-primary btn-small" onClick={confirmHandoff}>
-                Connect me
+                OK
               </button>
               <button
                 className="btn btn-outline btn-small"
@@ -764,17 +724,20 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         )}
         {handoff && (
           <section className="card panel case" aria-live="polite" aria-label="Handoff summary">
-            <p className="eyebrow">{handoff.local ? 'Summary for an advisor' : 'What the advisor sees'}</p>
+            <p className="eyebrow">{handoff.local ? 'Summary for an advisor' : 'What the advisor gets'}</p>
             <strong>
               {handoff.student_name} · {topic.label}
             </strong>
             {handoff.note ? <CaseNoteFields note={handoff.note} source={handoff.note_source} /> : <p className="muted">Writing a short summary for the advisor…</p>}
             <p className="muted">
-              {handoff.emotion
-                ? `Emotion estimate shared with your permission: ${handoff.emotion.label}.`
-                : 'Your emotion estimate is not shared.'}
+              {handoff.timeline.length ? 'Your mood estimates are shared with your permission.' : 'Your mood estimates are not shared.'}
               {handoff.note && (handoff.note_source === 'claude' ? ' Summary written by Claude from this chat.' : ' Summary taken from your own messages.')}
             </p>
+            {!handoff.local && (
+              <a href={advisorUrl(handoff.id)} target="_blank" rel="noreferrer">
+                Open the advisor view <span aria-hidden="true">↗</span>
+              </a>
+            )}
           </section>
         )}
         <div ref={endRef} />
@@ -792,7 +755,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
             className="input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder={withPerson ? (handoff?.status === 'active' ? 'Message the advisor' : 'Add a note for the advisor') : 'Type a message'}
+            placeholder="Type a message"
             aria-label="Message"
             maxLength={1000}
           />
@@ -837,7 +800,7 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         <EmotionInsights sources={sources} estimates={estimates} tone={botTone}
           cameraOn={!!settings.camera} voiceOn={settings.input === 'voice'}
           service={!perceptionOn ? 'unconfigured' : perceptionLive ? 'connected' : 'disconnected'}
-          demo={isDemo} withPerson={withPerson} face={reading?.face ?? null} voice={reading?.voice ?? null} />
+          demo={isDemo} face={reading?.face ?? null} voice={reading?.voice ?? null} />
         {latency && (
           <p className="muted">
             Last reply: <strong>{((latency.answer + latency.voice) / 1000).toFixed(1)} s</strong> after your words were ready
