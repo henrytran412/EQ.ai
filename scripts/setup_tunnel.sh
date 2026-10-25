@@ -24,7 +24,7 @@ ingress:
     path: ^/ws/
     service: http://127.0.0.1:8001
   - hostname: $HOST
-    path: ^/(chat|handoff|voice/token|health)$
+    path: ^/(chat|handoffs(/.*)?|voice/token|health)$
     service: http://127.0.0.1:8000
   - hostname: $HOST
     service: http://127.0.0.1:8080

@@ -10,10 +10,15 @@ Status: describes the code and the public site (https://eqai.study) as of 2026-1
 | Face/voice emotion labels | Yes, as labels only | dialogue service, then Claude | In memory, expires after 30 s |
 | Messages (typed or transcribed) | Yes | Claude (Anthropic API) | Not stored by our services |
 | Reply text | Yes | Cartesia TTS | Not stored by our services |
-| Advisor case note | Yes: the chat text goes to Claude to write it | the student's screen (and `/staff` in the same browser) | No. This demo does not send it to SJSU staff |
+| Advisor case note | Yes: the chat text goes to Claude to write it | the student's screen and the advisor console (`/staff`) | Only after "Connect me": SQLite on the Jetson, deleted after 24 hours |
+| Handoff (first name, topic, chat with EQ.ai, messages with the advisor) | Only after the student clicks "Connect me" | the advisor console (`/staff`, access code required) | SQLite on the Jetson, deleted after 24 hours |
+| Emotion estimate in a handoff | Only if the student ticks "share my emotion estimate" | the advisor console | With the handoff, 24 hours |
 | Visitor IP address | Yes, as with any website | rate limiter in the dialogue service | In memory for 10 minutes, never logged |
 
-There is no database: when the tab closes, nothing about the conversation remains on our side.
+Nothing about a conversation is kept unless the student asks for a person. Then the handoff (what the consent
+screen lists) is kept in one SQLite file on the Jetson (`data/handoffs.db`, never committed) and deleted 24 hours
+after it was created. The advisor console needs the `STAFF_CODE` access code; with no code set, it stays closed.
+A student's page reads only its own handoff, by a random 128-bit id.
 
 Rules enforced in code:
 - The camera is opt-in. The browser sends frames only while the camera toggle is on.

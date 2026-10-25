@@ -1,12 +1,14 @@
-"""Dialogue HTTP service: POST /chat and /handoff for the student web app, POST /signals for the Jetson.
+"""Dialogue HTTP service: /chat and /handoffs for the student web app and the advisor console, /signals for the Jetson.
 
 Run from the repo root:
   .venv/Scripts/uvicorn services.dialogue.app:create_app --factory --port 8000 --env-file .env
 Env: ANTHROPIC_API_KEY, CLAUDE_MODEL, DIALOGUE_EFFORT, ALLOWED_ORIGINS, CAMPUS_COUNSELING,
-     CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_TTS_MODEL, CARTESIA_STT_MODEL, CHAT_LIMIT, TOKEN_LIMIT ("hits/seconds").
+     CARTESIA_API_KEY, CARTESIA_VOICE_ID, CARTESIA_TTS_MODEL, CARTESIA_STT_MODEL, STAFF_CODE, HANDOFF_DB,
+     CHAT_LIMIT, TOKEN_LIMIT, HANDOFF_LIMIT ("hits/seconds").
 Public use: bind to 127.0.0.1 behind the Cloudflare tunnel, which sets CF-Connecting-IP.
 """
 
+import hmac
 import logging
 import os
 import threading
@@ -19,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .handoffs import Closed, HandoffStore
 from .policy import decide_behavior
 from .retrieval import KnowledgeBase
 
@@ -106,12 +109,6 @@ class ChatRequest(BaseModel):
         return v.strip()
 
 
-class HandoffRequest(BaseModel):
-    session_id: str = Field(min_length=1, max_length=100)
-    topic: Topic
-    history: list[Turn] = Field(default_factory=list, max_length=40)
-
-
 class Reading(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = Field(max_length=20)
@@ -126,9 +123,42 @@ class Signals(BaseModel):
     voice: Reading | None = None
 
 
+class HandoffRequest(BaseModel):
+    """What the consent screen lists; sent when the student clicks "Connect me"."""
+    session_id: str = Field(min_length=1, max_length=100)
+    topic: Topic
+    student_name: str = Field(max_length=40)
+    history: list[Turn] = Field(default_factory=list, max_length=40)
+    emotion: Reading | None = None  # only if the student ticked "share my emotion estimate"
+
+    @field_validator("student_name")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("student_name is empty")
+        return v.strip()
+
+
+class HandoffMessage(BaseModel):
+    text: str = Field(max_length=1000)
+
+    @field_validator("text")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("text is empty")
+        return v.strip()
+
+
+class HandoffStatus(BaseModel):
+    status: Literal["active", "resolved"]
+    staff_id: str = Field(default="Advisor", min_length=1, max_length=40)
+
+
 def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: list[str] | None = None,
                token_minter=cartesia_minter, chat_limit: tuple[int, float] | None = None,
-               token_limit: tuple[int, float] | None = None) -> FastAPI:
+               token_limit: tuple[int, float] | None = None, handoff_db: str | None = None,
+               staff_code: str | None = None, handoff_limit: tuple[int, float] | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")  # uvicorn hides app logs
     logging.getLogger("httpx").setLevel(logging.WARNING)  # otherwise one line per Claude/Cartesia request
     if model is None:
@@ -138,11 +168,15 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
     origins = allowed_origins or os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
     chat_rl = RateLimiter(*(chat_limit or env_limit("CHAT_LIMIT", "60/600")))
     token_rl = RateLimiter(*(token_limit or env_limit("TOKEN_LIMIT", "30/600")))
-    signals: dict[str, tuple[float, dict]] = {}  # shortcut: in-memory, one process; SpacetimeDB replaces this
+    # Each open page checks its handoff every 2 s, and one Wi-Fi shares one IP: keep this one roomy.
+    handoff_rl = RateLimiter(*(handoff_limit or env_limit("HANDOFF_LIMIT", "1800/600")))
+    signals: dict[str, tuple[float, dict]] = {}  # shortcut: in-memory, one process
+    store = HandoffStore(handoff_db or os.environ.get("HANDOFF_DB") or str(REPO / "data" / "handoffs.db"))
+    staff = os.environ.get("STAFF_CODE", "").strip() if staff_code is None else staff_code
 
     app = FastAPI(title="EQ.ai dialogue")
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
-                       allow_headers=["Content-Type"])
+                       allow_headers=["Content-Type", "Authorization"])
     log.info("knowledge base: %d passages", len(kb.passages))
 
     def check_rate(rl: RateLimiter, request: Request) -> None:
@@ -183,10 +217,36 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
         signals[body.session_id] = (time.time(), body.model_dump(exclude={"session_id"}))
         return Response(status_code=204)
 
-    @app.post("/handoff")
-    def handoff(req: HandoffRequest, request: Request):
-        """The advisor's note: Claude summarizes the conversation, or the student's own words if that fails."""
-        check_rate(chat_rl, request)
+    def is_staff(request: Request) -> bool:
+        """True with the right advisor code, False when no code was sent; a wrong code is refused."""
+        given = request.headers.get("authorization", "")
+        if not given:
+            return False
+        if not staff:
+            raise HTTPException(status_code=503, detail="The advisor console is not set up on this server.")
+        if not hmac.compare_digest(given.removeprefix("Bearer ").strip().encode(), staff.encode()):
+            raise HTTPException(status_code=401, detail="Wrong advisor access code.")
+        return True
+
+    def require_staff(request: Request) -> None:
+        if not is_staff(request):
+            raise HTTPException(status_code=401, detail="Advisor access code required.")
+
+    def found(change):
+        """404 for an unknown or expired handoff, 409 for a closed one."""
+        try:
+            h = change()
+        except Closed:
+            raise HTTPException(status_code=409, detail="This chat is closed.")
+        if h is None:
+            raise HTTPException(status_code=404, detail="No such handoff (they are deleted after 24 hours).")
+        return h
+
+    @app.post("/handoffs")
+    def create_handoff(req: HandoffRequest, request: Request):
+        """The student clicked "Connect me". Claude writes the advisor's case note from the chat (never the
+        emotion signals), or it is the student's own words if that fails; then the handoff is stored."""
+        check_rate(chat_rl, request)  # a Claude call
         said = [t.text for t in req.history if t.role == "student"]
         summary = None
         if said:
@@ -194,12 +254,38 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
                 summary = model.summarize(req.topic, req.history)
             except Exception:  # noqa: BLE001 - the handoff must go through even without Claude
                 log.exception("handoff summary failed")
-        if summary is None:
-            return {"source": "fallback",
-                    "summary": {"problem": " / ".join(said[-4:]) or "The student hasn't described the problem yet.",
-                                "deadline": None, "tried": [],
-                                "next_step": "Read the student's messages and follow up with them."}}
-        return {"source": "claude", "summary": summary.model_dump()}
+        note = summary.model_dump() if summary else {
+            "problem": " / ".join(said[-4:]) or "The student hasn't described the problem yet.",
+            "deadline": None, "tried": [], "next_step": "Read the student's messages and follow up with them."}
+        return store.create({"student_name": req.student_name, "topic": req.topic, "note": note,
+                             "note_source": "claude" if summary else "fallback",
+                             "emotion": req.emotion.model_dump() if req.emotion else None,
+                             "transcript": [t.model_dump() for t in req.history]})
+
+    @app.get("/handoffs")
+    def list_handoffs(request: Request):
+        """The advisor console: every handoff from the last 24 hours, newest first."""
+        check_rate(handoff_rl, request)
+        require_staff(request)
+        return {"handoffs": store.all()}
+
+    @app.get("/handoffs/{hid}")
+    def get_handoff(hid: str, request: Request):
+        """The student's page checks its own handoff; only that page knows the random id."""
+        check_rate(handoff_rl, request)
+        return found(lambda: store.get(hid))
+
+    @app.post("/handoffs/{hid}/messages")
+    def add_handoff_message(hid: str, body: HandoffMessage, request: Request):
+        check_rate(handoff_rl, request)
+        sender = "staff" if is_staff(request) else "student"
+        return found(lambda: store.add_message(hid, sender, body.text))
+
+    @app.post("/handoffs/{hid}/status")
+    def set_handoff_status(hid: str, body: HandoffStatus, request: Request):
+        check_rate(handoff_rl, request)
+        require_staff(request)
+        return found(lambda: store.set_status(hid, body.status, body.staff_id))
 
     def plain_chat(req: ChatRequest, passages) -> dict:
         """Comparison mode for the demo (/plain): same pages, model and voice, none of the emotion features.

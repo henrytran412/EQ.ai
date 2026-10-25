@@ -1,4 +1,4 @@
-"""POST /handoff: the advisor's summary of the student's problem (Claude, with a safe fallback)."""
+"""/handoffs: the advisor's case note (Claude, with a safe fallback), stored in SQLite for the advisor console."""
 
 import importlib.util
 import json
@@ -22,20 +22,30 @@ HISTORY = [
 
 
 def handoff_body(**overrides):
-    body = {"session_id": "s1", "topic": "financial_aid_hold", "history": HISTORY}
+    body = {"session_id": "s1", "topic": "financial_aid_hold", "student_name": "Mai", "history": HISTORY}
     body.update(overrides)
     return body
 
 
+STAFF = {"Authorization": "Bearer staff-code-1"}
+
+
+class NoteModel:
+    def summarize(self, topic, history):
+        from services.dialogue.llm import HandoffSummary
+        return HandoffSummary(problem="A financial aid hold blocks registration.", deadline="Friday",
+                              tried=["Uploaded the requested form"], next_step="Check the To Do list item.")
+
+
 @unittest.skipUnless(HAS_WEB, "fastapi/httpx/anthropic not installed")
 class HandoffApi(unittest.TestCase):
-    def client(self, model, chat_limit=(20, 600)):
+    def client(self, model, chat_limit=(20, 600), staff_code="staff-code-1"):
         from fastapi.testclient import TestClient
         from services.dialogue.app import create_app
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         return TestClient(create_app(model=model, knowledge_dir=Path(tmp.name), allowed_origins=["http://localhost:5173"],
-                                     chat_limit=chat_limit))
+                                     chat_limit=chat_limit, handoff_db=":memory:", staff_code=staff_code))
 
     def test_claude_summary_is_returned(self):
         from services.dialogue.llm import HandoffSummary
@@ -47,10 +57,10 @@ class HandoffApi(unittest.TestCase):
                 return HandoffSummary(problem="A financial aid hold blocks registration.", deadline="Friday",
                                       tried=["Uploaded the requested form"], next_step="Check the To Do list item.")
 
-        body = self.client(Model()).post("/handoff", json=handoff_body()).json()
-        self.assertEqual(body["source"], "claude")
-        self.assertEqual(body["summary"]["deadline"], "Friday")
-        self.assertEqual(body["summary"]["tried"], ["Uploaded the requested form"])
+        body = self.client(Model()).post("/handoffs", json=handoff_body()).json()
+        self.assertEqual(body["note_source"], "claude")
+        self.assertEqual(body["note"]["deadline"], "Friday")
+        self.assertEqual(body["note"]["tried"], ["Uploaded the requested form"])
         self.assertEqual(seen["topic"], "financial_aid_hold")
         self.assertEqual([t.text for t in seen["history"]], [t["text"] for t in HISTORY])
 
@@ -59,11 +69,12 @@ class HandoffApi(unittest.TestCase):
             def summarize(self, topic, history):
                 raise RuntimeError("Claude is down")
 
-        body = self.client(Broken()).post("/handoff", json=handoff_body()).json()
-        self.assertEqual(body["source"], "fallback")
-        self.assertIn("The deadline is Friday.", body["summary"]["problem"])
-        self.assertNotIn("To Do list", body["summary"]["problem"])  # only the student's words, not the assistant's
-        self.assertIsNone(body["summary"]["deadline"])
+        body = self.client(Broken()).post("/handoffs", json=handoff_body()).json()
+        self.assertEqual(body["note_source"], "fallback")
+        self.assertIn("The deadline is Friday.", body["note"]["problem"])
+        self.assertNotIn("To Do list", body["note"]["problem"])  # only the student's words, not the assistant's
+        self.assertIsNone(body["note"]["deadline"])
+        self.assertEqual(body["status"], "waiting")  # the handoff still goes through
 
     def test_no_student_messages_skips_claude(self):
         calls = []
@@ -72,20 +83,77 @@ class HandoffApi(unittest.TestCase):
             def summarize(self, topic, history):
                 calls.append(topic)
 
-        body = self.client(Model()).post("/handoff", json=handoff_body(history=[])).json()
+        body = self.client(Model()).post("/handoffs", json=handoff_body(history=[])).json()
         self.assertEqual(calls, [])
-        self.assertEqual(body["source"], "fallback")
-        self.assertIn("hasn't described", body["summary"]["problem"])
+        self.assertEqual(body["note_source"], "fallback")
+        self.assertIn("hasn't described", body["note"]["problem"])
 
     def test_shares_the_chat_rate_limit(self):
         client = self.client(object(), chat_limit=(1, 600))
-        self.assertEqual(client.post("/handoff", json=handoff_body()).status_code, 200)
-        self.assertEqual(client.post("/handoff", json=handoff_body()).status_code, 429)
+        self.assertEqual(client.post("/handoffs", json=handoff_body()).status_code, 200)
+        self.assertEqual(client.post("/handoffs", json=handoff_body()).status_code, 429)
 
-    def test_rejects_oversized_history(self):
+    def test_rejects_oversized_history_and_blank_names(self):
         client = self.client(object())
         too_long = [{"role": "student", "text": "x"}] * 41
-        self.assertEqual(client.post("/handoff", json=handoff_body(history=too_long)).status_code, 422)
+        self.assertEqual(client.post("/handoffs", json=handoff_body(history=too_long)).status_code, 422)
+        self.assertEqual(client.post("/handoffs", json=handoff_body(student_name="  ")).status_code, 422)
+
+    def test_stored_handoff_reaches_the_students_page_and_the_advisor(self):
+        client = self.client(NoteModel())
+        h = client.post("/handoffs", json=handoff_body()).json()
+        self.assertGreaterEqual(len(h["id"]), 20)  # random, unguessable
+        self.assertEqual(client.get(f"/handoffs/{h['id']}").json(), h)
+        listed = client.get("/handoffs", headers=STAFF).json()["handoffs"]
+        self.assertEqual([x["id"] for x in listed], [h["id"]])
+        self.assertEqual(listed[0]["transcript"], HISTORY)  # the advisor sees the whole chat with EQ.ai
+        self.assertEqual(listed[0]["note"]["deadline"], "Friday")
+        self.assertEqual(client.get("/handoffs/not-a-real-id").status_code, 404)
+
+    def test_emotion_estimate_is_stored_only_when_the_student_shares_it(self):
+        client = self.client(NoteModel())
+        self.assertIsNone(client.post("/handoffs", json=handoff_body()).json()["emotion"])
+        shared = client.post("/handoffs", json=handoff_body(emotion={"label": "frustrated", "confidence": 0.7})).json()
+        self.assertEqual(shared["emotion"], {"label": "frustrated", "confidence": 0.7})
+
+    def test_advisor_console_needs_the_access_code(self):
+        client = self.client(NoteModel())
+        self.assertEqual(client.get("/handoffs").status_code, 401)
+        self.assertEqual(client.get("/handoffs", headers={"Authorization": "Bearer wrong"}).status_code, 401)
+        self.assertEqual(client.get("/handoffs", headers=STAFF).status_code, 200)
+        unset = self.client(NoteModel(), staff_code="")  # no STAFF_CODE: the console stays closed
+        self.assertEqual(unset.get("/handoffs", headers=STAFF).status_code, 503)
+
+    def test_advisor_takes_the_chat_replies_and_closes_it(self):
+        client = self.client(NoteModel())
+        hid = client.post("/handoffs", json=handoff_body()).json()["id"]
+        self.assertEqual(client.post(f"/handoffs/{hid}/status", json={"status": "active"}).status_code, 401)
+        taken = client.post(f"/handoffs/{hid}/status", json={"status": "active", "staff_id": "Advisor (demo)"},
+                            headers=STAFF).json()
+        self.assertEqual((taken["status"], taken["staff_id"]), ("active", "Advisor (demo)"))
+        client.post(f"/handoffs/{hid}/messages", json={"text": "Hi Mai, I can see your hold."}, headers=STAFF)
+        h = client.post(f"/handoffs/{hid}/messages", json={"text": "  Thank you!  "}).json()
+        self.assertEqual([(m["from"], m["text"]) for m in h["messages"]],
+                         [("staff", "Hi Mai, I can see your hold."), ("student", "Thank you!")])
+        self.assertGreater(h["version"], taken["version"])  # pages keep the newest version
+        closed = client.post(f"/handoffs/{hid}/status", json={"status": "resolved"}, headers=STAFF).json()
+        self.assertEqual(closed["status"], "resolved")
+        self.assertEqual(client.post(f"/handoffs/{hid}/messages", json={"text": "one more"}).status_code, 409)
+        self.assertEqual(client.post(f"/handoffs/{hid}/messages", json={"text": "  "}).status_code, 422)
+
+
+class HandoffStoreExpiry(unittest.TestCase):
+    def test_handoffs_are_deleted_after_the_retention_time(self):
+        from services.dialogue.handoffs import HandoffStore
+        now = [1000.0]
+        store = HandoffStore(":memory:", retention_sec=60, clock=lambda: now[0])
+        hid = store.create({"student_name": "Mai"})["id"]
+        now[0] += 59
+        self.assertIsNotNone(store.get(hid))
+        now[0] += 2
+        self.assertIsNone(store.get(hid))
+        self.assertEqual(store.all(), [])
+        self.assertIsNone(store.add_message(hid, "student", "hello?"))
 
 
 def fake_anthropic(reply_text: str, stop_reason: str = "end_turn"):

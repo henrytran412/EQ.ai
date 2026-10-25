@@ -346,6 +346,12 @@ p { margin: 0; }
 .detail-head { display: grid; gap: 12px; padding: 20px 24px; border-bottom: 1px solid var(--hairline); }
 .detail .messages { padding: 20px 24px; overflow-y: auto; width: 100%; align-content: start; }
 .empty { display: grid; place-items: center; height: 100%; color: var(--stone); padding: 24px; text-align: center; }
+.transcript summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.transcript ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; max-height: 240px; overflow-y: auto; font-size: 14px; line-height: 1.45; }
+@media (max-width: 760px) { /* the advisor may answer from a phone */
+  .staff { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .queue { max-height: 32dvh; border-right: 0; border-bottom: 1px solid var(--hairline); }
+}
 @media (max-width: 767px) {
   .staff { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .queue { max-height: 35dvh; border-right: 0; border-bottom: 1px solid var(--hairline); }

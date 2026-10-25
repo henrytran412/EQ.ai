@@ -3,9 +3,9 @@ import Bear from './Bear'
 import EmotionInsights from './EmotionInsights'
 import './chat.css'
 import Landing from './Landing'
-import { askAssistant, isDemo, summarizeHandoff } from './api'
+import { askAssistant, isDemo } from './api'
 import CaseNoteFields from './CaseNoteView'
-import { publish, subscribe, type Handoff } from './handoff'
+import { createHandoff, fetchHandoff, poll, sendHandoffMessage, type Handoff } from './handoff'
 import { connectPerception, perceptionOn, streamFrames, type Estimate, type Reading } from './perception'
 import { TOPICS, type ChatResponse, type EmotionEstimate, type Expression } from './policy'
 import type { Tone } from './cartesia'
@@ -110,7 +110,7 @@ function Login({ name, onSubmit }: { name: string; onSubmit: (name: string) => v
       }}
     >
       <h2>Welcome</h2>
-      <p className="muted">Demo login. No password, and nothing is saved.</p>
+      <p className="muted">Demo login. No password. Nothing is saved unless you ask for a person.</p>
       <div className="field">
         <label htmlFor="name">Your first name</label>
         <input
@@ -246,7 +246,8 @@ function Setup({ settings, update, onStart }: { settings: Settings; update: Upda
         )}
         <p className="note">
           Your messages and the short emotion estimates (like "confused") go to Claude, Anthropic's AI, to write the bear's
-          replies. EQ.ai doesn't keep a copy of your chat.
+          replies. EQ.ai doesn't keep a copy of your chat, unless you ask for a person: then your first name, a summary
+          and this chat are kept for 24 hours so an advisor can help.
         </p>
         {settings.input === 'voice' && !cartesiaVoice && (
           <p className="note">
@@ -369,10 +370,21 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     else setStatus('idle')
   }
 
-  function updateHandoff(h: Handoff) {
+  // A newer server copy of this chat's handoff: announce the advisor joining, their replies, and the close.
+  function applyHandoff(h: Handoff) {
+    const prev = live.current.handoff
+    if (!prev || h.id !== prev.id || h.version <= prev.version) return // replies can arrive out of order
     live.current.handoff = h
     setHandoff(h)
-    publish(h)
+    if (prev.status === 'waiting' && h.status === 'active') say(`${h.staff_id ?? 'An advisor'} joined the chat.`, 'happy', undefined, 'system')
+    h.messages
+      .slice(prev.messages.length)
+      .filter((m) => m.from === 'staff')
+      .forEach((m) => say(m.text, 'neutral', undefined, 'staff'))
+    if (h.status === 'resolved' && prev.status !== 'resolved') {
+      say('The advisor closed this chat. I hope that helped!', 'happy', undefined, 'system')
+      setExpression('happy')
+    }
   }
 
   const greeted = useRef(false)
@@ -414,28 +426,12 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     }
   }, [settings.camera])
 
-  useEffect(
-    () =>
-      subscribe(
-        (h) => {
-          const prev = live.current.handoff
-          if (!prev || h.id !== prev.id) return
-          live.current.handoff = h
-          setHandoff(h)
-          if (prev.status === 'waiting' && h.status === 'active') say(`${h.staff_id ?? 'An advisor'} joined the chat.`, 'happy', undefined, 'system')
-          h.messages
-            .slice(prev.messages.length)
-            .filter((m) => m.from === 'staff')
-            .forEach((m) => say(m.text, 'neutral', undefined, 'staff'))
-          if (h.status === 'resolved' && prev.status !== 'resolved') {
-            say('The advisor closed this chat. I hope that helped!', 'happy', undefined, 'system')
-            setExpression('happy')
-          }
-        },
-        () => live.current.handoff && publish(live.current.handoff),
-      ),
-    [],
-  )
+  // While waiting for or talking with an advisor, check the stored handoff every 2 s; stops once it is closed.
+  const pollId = handoff && !handoff.local && handoff.status !== 'resolved' ? handoff.id : null
+  useEffect(() => {
+    if (!pollId) return
+    return poll(async () => applyHandoff(await fetchHandoff(pollId)))
+  }, [pollId])
 
   async function send(raw: string) {
     const text = raw.trim()
@@ -447,7 +443,8 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
     const h = live.current.handoff
     if (h && h.status !== 'resolved') {
       setMsgs((m) => [...m, { from: 'student', text }])
-      updateHandoff({ ...h, messages: [...h.messages, { from: 'student', text, at: Date.now() }] })
+      // A handoff kept only on this page (demo mode, or the service was unreachable) has no advisor to reach.
+      if (!h.local) sendHandoffMessage(h.id, text).then(applyHandoff, () => setNotice("Couldn't send that to the advisor. Please try again."))
       return
     }
 
@@ -574,23 +571,23 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
       .filter((m) => m.from === 'student' || m.from === 'assistant')
       .map((m) => ({ role: m.from as 'student' | 'assistant', text: m.text }))
     setConsentOpen(false)
-    const id = crypto.randomUUID()
-    updateHandoff({
-      id,
-      student_name: settings.name,
-      topic: topic.label,
-      summary: 'Writing a summary of the conversation…',
-      emotion: shareEmotion ? estimates.at(-1) : undefined,
-      status: 'waiting',
-      messages: [],
-      created_at: Date.now(),
-    })
-    // Claude writes the case note (only from the chat, never the emotion signals); it falls back to the student's words.
-    const { note, source } = await summarizeHandoff({ session_id: sessionId, topic: topic.id, history })
-    const h = live.current.handoff
-    if (h?.id === id) updateHandoff({ ...h, summary: note.problem, note, note_source: source })
+    setStatus('thinking') // new messages wait until the handoff exists
+    const emotion = shareEmotion ? estimates.at(-1) : undefined
+    // Shown while Claude writes the case note on the server (only from the chat, never the emotion signals).
+    const pending: Handoff = {
+      id: 'pending', version: 0, student_name: settings.name, topic: topic.id, emotion, transcript: history,
+      status: 'waiting', messages: [], created_at: Date.now(), local: true,
+    }
+    live.current.handoff = pending
+    setHandoff(pending)
+    const h = await createHandoff({ session_id: sessionId, topic: topic.id, student_name: settings.name, history, emotion })
+    live.current.handoff = h
+    setHandoff(h)
+    setStatus('idle')
     say(
-      "Here's a summary for an SJSU advisor, so you won't have to explain it again. This demo doesn't send it to SJSU yet, so please share it with the office.",
+      h.local
+        ? `Here's a summary for an advisor, so you won't have to explain it again. ${isDemo ? "This demo isn't connected to an advisor" : "I couldn't send it just now"}, so please share it with the office.`
+        : "I sent this summary to an advisor, so you won't have to explain it again. They'll reply right here. In this demo, the advisor isn't SJSU staff yet.",
       'happy',
     )
   }
@@ -607,7 +604,11 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
   const face = reading?.face
   const statusText = handoff && withPerson
     ? handoff.status === 'waiting'
-      ? 'Summary ready for an advisor (demo: not sent to SJSU staff)'
+      ? handoff.id === 'pending'
+        ? 'Writing a summary for the advisor…'
+        : handoff.local
+          ? 'Summary ready. Please share it with the office.'
+          : 'Waiting for an advisor (demo: not SJSU staff)'
       : `You're chatting with ${handoff.staff_id ?? 'an advisor'}`
     : {
         idle: voiceOnly ? 'Tap the mic to talk' : 'Type your message below',
@@ -738,7 +739,8 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
           <div className="card panel">
             <strong>Here's what I'll share with the advisor</strong>
             <p className="muted">
-              Your name ({settings.name}), the topic ({topic.label}), and what you told me in this chat.
+              Your name ({settings.name}), the topic ({topic.label}), and what you told me in this chat. It's kept for
+              24 hours so the advisor can help, then deleted.
             </p>
             <label className="toggle">
               <input type="checkbox" checked={shareEmotion} onChange={(e) => setShareEmotion(e.target.checked)} />
@@ -762,9 +764,9 @@ function Chat({ settings, update }: { settings: Settings; update: Update }) {
         )}
         {handoff && (
           <section className="card panel case" aria-live="polite" aria-label="Handoff summary">
-            <p className="eyebrow">What an SJSU advisor would see</p>
+            <p className="eyebrow">{handoff.local ? 'Summary for an advisor' : 'What the advisor sees'}</p>
             <strong>
-              {handoff.student_name} · {handoff.topic}
+              {handoff.student_name} · {topic.label}
             </strong>
             {handoff.note ? <CaseNoteFields note={handoff.note} source={handoff.note_source} /> : <p className="muted">Writing a short summary for the advisor…</p>}
             <p className="muted">

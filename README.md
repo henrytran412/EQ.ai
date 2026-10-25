@@ -26,8 +26,12 @@ service. Always confirm important details with the office.
    seem frustrated, it checks first: "It sounds frustrating. Am I reading that right?" On a laptop, the
    panel on the right shows the emotion map, what it is reading from, and how long the last reply took.
 6. Click **Talk to a person** at any time. Choose whether to share your emotion estimate (off unless you
-   turn it on), then click **Connect me**. You see the case note an SJSU advisor would get: the problem,
-   any deadline, what you already tried, and a first step. In this demo the note is not sent to SJSU.
+   turn it on), then click **Connect me**. Claude writes a case note for the advisor: the problem, any
+   deadline, what you already tried, and a first step.
+7. The advisor opens the **advisor console** at [eqai.study/staff](https://eqai.study/staff) (it needs the
+   advisor access code), on any device. They see the case note and your chat with EQ.ai, click **Take this
+   chat**, and reply. Their reply appears in your chat, so you don't explain the problem again. In this demo
+   the advisor is whoever has the code, not SJSU staff.
 
 If a student sounds like they are in crisis, the bear stops the task and shares the 988 Suicide and Crisis
 Lifeline. EQ.ai is not a therapist or a medical tool.
@@ -45,6 +49,7 @@ Browser (eqai.study)                      Jetson Orin Nano (behind a Cloudflare 
   <------------------ reply + tone ------
   microphone -----> Cartesia Ink 2 (speech to text, turn detection)
   reply ----------> Cartesia Sonic 3.5 (speaks with the chosen emotion and speed)
+  "Connect me" ---------------------->   Claude writes the case note -> SQLite (24 h) <---> advisor console (/staff)
 ```
 
 | Part | What it does |
@@ -54,6 +59,7 @@ Browser (eqai.study)                      Jetson Orin Nano (behind a Cloudflare 
 | **Cartesia Ink 2** | Turns the student's speech into text. Its turn detection decides when the student has finished, which helps people who pause mid-sentence. |
 | **Cartesia Sonic 3.5** | Speaks each reply with the emotion and speed the policy picked. We chose Sonic 3.5 because its speed control was strongest in our test: "calm, 0.8×" came out 15% slower than "neutral, 1×". |
 | **Our face and voice models** | Trained by us (see `training/`), running on the Jetson's GPU. Only short labels leave the Jetson, never images or audio. |
+| **Handoff database** (`services/dialogue/handoffs.py`) | SQLite on the Jetson: free, built into Python, no setup. A handoff is saved only after the student clicks **Connect me**, and deleted after 24 hours. The student's page and the advisor console check it every 2 seconds. |
 | **Official pages** (`data/knowledge/`) | 26 public SJSU pages (financial aid, registration, Bursar, scholarships, international students, counseling), copied word for word on 2026-10-24 and searched with BM25. |
 
 More detail: [docs/architecture.md](docs/architecture.md).
@@ -79,7 +85,10 @@ student speech and faces. RAVDESS is acted English speech, so expect lower accur
 - **Voice**: goes to Cartesia's cloud to become text, and to the Jetson for the emotion estimate. EQ.ai stores none of it.
 - **Messages** and short emotion labels go to Claude (Anthropic) to write the replies.
 - The advisor case note never includes your emotion estimate unless you turn that on.
-- **No database**: nothing about the conversation is kept after you close the tab.
+- **Nothing is kept unless you ask for a person.** After you click **Connect me**, your first name, the topic,
+  the case note, your chat with EQ.ai, the emotion estimate (only if you shared it) and your messages with the
+  advisor are kept in a SQLite file on the Jetson for 24 hours, then deleted.
+- The advisor console needs an access code.
 - API keys stay on the server. The browser only gets a 10-minute Cartesia token.
 
 The setup screen tells students all of this. Full details: [docs/privacy.md](docs/privacy.md).
@@ -151,8 +160,8 @@ This is how [eqai.study](https://eqai.study) runs. It needs no sudo, and everyth
 ### Tests
 
 ```bash
-python -m unittest discover -s tests          # 104 Python tests
-cd apps/student-web && npm test               # 29 web app tests
+python -m unittest discover -s tests          # 113 Python tests
+cd apps/student-web && npm test               # 32 web app tests
 ```
 
 ## Configuration (`.env`)
@@ -165,6 +174,8 @@ cd apps/student-web && npm test               # 29 web app tests
 | `CHAT_LIMIT`, `TOKEN_LIMIT` | Per-IP limits on paid calls, as `hits/seconds` (default 60 chats and 30 voice tokens per 10 minutes). |
 | `CAMPUS_COUNSELING` | One line added to distress replies, e.g. the counseling center's phone number. |
 | `CARTESIA_VOICE_ID`, `CARTESIA_TTS_MODEL`, `CARTESIA_STT_MODEL` | Optional voice and model overrides (defaults: the "Maya" voice, `sonic-3.5`, `ink-2`). |
+| `STAFF_CODE` | Access code for the advisor console (`/staff`). Empty keeps the console closed. |
+| `HANDOFF_DB`, `HANDOFF_LIMIT` | Optional: the SQLite file for handoffs (default `data/handoffs.db`), and the per-IP limit on handoff checks (default 1800 per 10 minutes). |
 
 The web app reads `VITE_API_URL` and `VITE_PERCEPTION_URL` when it is built (see `apps/student-web/.env.example`).
 
@@ -172,7 +183,7 @@ The web app reads `VITE_API_URL` and `VITE_PERCEPTION_URL` when it is built (see
 
 ```
 apps/student-web/    React + Vite web app: landing, setup, chat, advisor case note, /staff console
-services/dialogue/   FastAPI: /chat, /handoff, /voice/token, /signals; Claude, page search, behavior policy
+services/dialogue/   FastAPI: /chat, /handoffs, /voice/token, /signals; Claude, page search, behavior policy, handoff database
 services/perception/ FastAPI WebSocket: face and voice emotion models (ONNX on the Jetson GPU)
 data/knowledge/      the list of official SJSU pages and the script that copies them
 training/            dataset preparation, training, Kaggle runner, measured results
@@ -189,8 +200,8 @@ demo/                demo script and video notes
 - **The voice model learned from acted English speech** (RAVDESS). Real-world accuracy is not measured yet.
 - **Answers only cover the 26 copied SJSU pages.** If they don't cover a question, the bear says so and
   offers an advisor instead of guessing.
-- **The advisor handoff is a demo screen.** It is not connected to SJSU staff, and the `/staff` console
-  only syncs tabs in the same browser.
+- **The advisor console is a demo.** Whoever has the access code acts as the advisor; it is not connected to
+  SJSU staff. Pages check for new messages every 2 seconds, so replies take up to 2 seconds to appear.
 - **One Jetson serves the public site**, so it handles a few visitors at a time. If the network drops,
   the site is down briefly; the tunnel reconnects within seconds.
 

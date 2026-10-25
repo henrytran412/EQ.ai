@@ -22,6 +22,7 @@ dist/
 *.mp4
 data/eval/raw/
 data/eval/audio/
+data/*.db*
 
 # training data and weights (licensed datasets: never commit, never publish)
 training/data/

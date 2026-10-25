@@ -16,9 +16,11 @@ Browser (apps/student-web)          Jetson / laptop (services/perception, :8001)
   POST /voice/token  ----------->    mints 10-min Cartesia token (key stays on server)
   Cartesia Ink STT  <-- direct ---   (mic audio to Cartesia cloud)
   Cartesia Sonic TTS <-- direct --   (reply text + speed/emotion from /chat)
-  POST /handoff --------------->    Claude writes the advisor case note (problem, deadline, what was
-                                     tried, first step) from the chat only, never the emotion signals.
-                                     Shown on screen; this demo does not send it to SJSU staff.
+  POST /handoffs -------------->    Claude writes the advisor case note (problem, deadline, what was
+                                     tried, first step) from the chat only, never the emotion signals,
+                                     and the handoff is saved in SQLite (services/dialogue/handoffs.py, 24 h).
+  GET /handoffs/{id} every 2 s <-    advisor console (/staff, access code): GET /handoffs every 2 s,
+  POST /handoffs/{id}/messages        POST .../status (take, resolve) and .../messages (reply)
 ```
 
 ## Public deployment (https://eqai.study)
@@ -26,8 +28,9 @@ Browser (apps/student-web)          Jetson / laptop (services/perception, :8001)
 Everything runs on one NVIDIA Jetson Orin Nano: dialogue (:8000), perception (:8001, ONNX Runtime on
 the GPU) and the static site (:8080), each bound to 127.0.0.1 and restarted 3 s after a crash
 (`scripts/serve_jetson.sh`). A Cloudflare named tunnel (outbound only, HTTP/2) publishes just the site,
-`/chat`, `/handoff`, `/voice/token`, `/health` and `/ws/*` (`scripts/setup_tunnel.sh`); `/signals` stays
-internal. Per-visitor rate limits use Cloudflare's `CF-Connecting-IP`. Nothing is stored: no database.
+`/chat`, `/handoffs/*`, `/voice/token`, `/health` and `/ws/*` (`scripts/setup_tunnel.sh`); `/signals` stays
+internal. Per-visitor rate limits use Cloudflare's `CF-Connecting-IP`. The only stored data is handoffs: one
+SQLite file on the Jetson, rows deleted 24 hours after they were created.
 
 ## Models
 

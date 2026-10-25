@@ -63,6 +63,17 @@ Then click **Talk to a person**:
   registration), the deadline (Friday), what you tried (uploaded tax documents three days ago, called with
   no answer), and a first step for the advisor.
 
+Then the advisor answers, on a **second device** (your phone, or another browser window):
+1. Open **https://eqai.study/staff** and enter the advisor access code.
+2. The new handoff appears within a few seconds. Click it: the case note is on top, and **Full chat with
+   EQ.ai** shows everything the student said.
+3. Click **Take this chat**. The student's page says "Advisor (demo) joined the chat."
+4. Reply, for example: "Hi! I read your summary and your chat, so no need to explain again. I'll check your
+   To Do List now." The reply shows up in the student's chat within about 2 seconds, and the bear reads it out.
+5. Click **Mark resolved** to close the chat.
+
+You play the advisor here, so say so in the video ("I'm playing the advisor"). Don't invent real SJSU answers.
+
 Plain mode gets the same four lines. It has no "Talk to a person" button, so the student is left to call
 the office alone. That contrast is the point.
 
@@ -84,13 +95,14 @@ it in the video. It shows the system is an estimate that checks with you, which 
 |---|---|---|
 | 0:00–0:15 | You, or a black screen with text | "Every time I needed help, with a login, a bank account or a deposit, I had to get past a chatbot first. It talked too fast, and it didn't feel human. When I finally reached a person, I had to explain everything again. Then it happened at my school." |
 | 0:15–0:22 | Landing page, eqai.study | "This is EQ.ai, a voice assistant for international students at San José State, built for one problem: a hold that blocks registration." |
-| 0:22–0:32 | Setup screen | "I pick my problem and choose voice. The camera is optional, and nothing is stored." |
+| 0:22–0:32 | Setup screen | "I pick my problem and choose voice. The camera is optional, and nothing is stored unless I ask for a person." |
 | 0:32–0:50 | Split screen, line 1 | "On the left, the same assistant with its emotion features turned off. On the right, EQ.ai. Same words, same official pages." |
 | 0:50–1:15 | Split screen, line 2 | "When I'm confused, the plain version answers in the same voice and at the same speed. EQ.ai uses simpler words, and Cartesia Sonic speaks calmer and slower." |
 | 1:15–1:40 | Split screen, line 3 | "When I'm frustrated, EQ.ai doesn't assume. It asks: am I reading that right? Emotion estimates can be wrong, especially with accents, so it checks first." |
-| 1:40–2:10 | Line 4, then the handoff and case note | "I ask for a person. I decide whether my emotion estimate is shared. The advisor gets a case note that Claude wrote from our chat: the problem, the deadline, what I tried, and a first step. I explain it once." |
-| 2:10–2:40 | Emotion map, then a quick shot of the Jetson | "Cartesia Ink 2 turns my speech into text. My own face and voice models run on this NVIDIA Jetson, and only labels leave it. Claude reads my words and those labels, estimates my state, and answers only from official SJSU pages, with citations. Safety rules live in code: voice alone never triggers an action, and distress always shows the 988 lifeline." |
-| 2:40–2:50 | Landing page | "EQ.ai notices, it adapts, and you only explain it once. Try it at eqai.study." |
+| 1:40–2:10 | Line 4, then the handoff and case note | "I ask for a person. I decide whether my emotion estimate is shared. The advisor gets a case note that Claude wrote from our chat: the problem, the deadline, what I tried, and a first step." |
+| 2:10–2:25 | Advisor console on a second device, then the reply in the student's chat | "On the advisor's side, the case note and the whole chat are already there. I'm playing the advisor: I take the chat and reply, and it shows up for the student. I explain it once." |
+| 2:25–2:50 | Emotion map, then a quick shot of the Jetson | "Cartesia Ink 2 turns my speech into text. My own face and voice models run on this NVIDIA Jetson, and only labels leave it. Claude reads my words and those labels, estimates my state, and answers only from official SJSU pages, with citations. Safety rules live in code: voice alone never triggers an action, and distress always shows the 988 lifeline." |
+| 2:50–3:00 | Landing page | "EQ.ai notices, it adapts, and you only explain it once. Try it at eqai.study." |
 
 If you cut waiting time between your words and the bear's reply, add a small caption: "pauses shortened".
 Never speed up the bear's voice, because its speed is the feature you are showing.

@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --test src/policy.test.ts src/perception.test.ts src/emotionMap.test.ts src/trainingResults.test.ts src/cartesia.test.ts src/caseNote.test.ts"
+    "test": "node --test src/policy.test.ts src/perception.test.ts src/emotionMap.test.ts src/trainingResults.test.ts src/cartesia.test.ts src/caseNote.test.ts src/handoff.test.ts"
   },
   "dependencies": {
     "react": "^19.3.1",

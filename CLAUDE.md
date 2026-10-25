@@ -105,7 +105,7 @@ Core:
   use of Claude). Confirm the opt-in step with organizers.
 - Cal Hacks: Best People-First Social Impact, Most Creative, Most Technically Advanced, Overall
 - Cartesia: Best Use of Cartesia (emotion-controlled voice)
-- SpacetimeDB: skipped (decided 2026-10-24). The demo stores nothing, so there is no database.
+- SpacetimeDB: skipped (decided 2026-10-24). Handoffs use SQLite instead (free, built into Python).
 - Microsoft: Built for the Real World, and Customer Impact Award (real users, real problem).
   Requirements not confirmed. Ask Microsoft mentors whether specific tools (Azure, VibeVoice)
   are required or count. Do not assume.
@@ -118,7 +118,7 @@ Core:
 
 Optional, only if natural: Elastic Agent Builder (retrieval over school pages), Bitdeer.
 Skipped: Fetch.ai (poor fit for a real-time voice loop). Dropped: MLH Gemini (Gemini is not
-used), Convex and SpacetimeDB (no database needed).
+used), Convex and SpacetimeDB (SQLite is enough).
 
 ## 7. Tech stack
 
@@ -132,7 +132,8 @@ Confirmed direction:
   signal JSON plus the transcript and outputs state and tone settings. It does NOT write reply
   content (Claude does). Serve it on Vultr behind a token-protected API, with a quantized
   local copy as fallback. Gemini is NOT used.
-- Database: none. Nothing is stored; the advisor case note is written on demand (POST /handoff).
+- Database: SQLite on the Jetson, for handoffs only (`services/dialogue/handoffs.py`): saved when the student
+  clicks "Connect me", deleted after 24 hours. The advisor console (/staff) needs STAFF_CODE.
 - Avatar: 2D animated face in the web app (expression states, mouth driven by audio level).
   No photoreal avatar.
 - Edge: NVIDIA Jetson Orin Nano for optional local perception (pretrained models first).
@@ -153,7 +154,7 @@ project-root/
 |-- .env.example            # placeholders only
 |-- apps/student-web/       # React + Vite: landing, setup, chat, advisor case note, /staff console
 |-- services/
-|   |-- dialogue/           # FastAPI: /chat, /handoff, /voice/token, /signals; Claude, retrieval, policy
+|   |-- dialogue/           # FastAPI: /chat, /handoffs, /voice/token, /signals; Claude, retrieval, policy, handoff DB
 |   `-- perception/         # FastAPI WebSocket: face + voice emotion models (ONNX on the Jetson GPU)
 |-- data/knowledge/         # official SJSU source list + page copier (copied pages are gitignored)
 |-- training/               # dataset prep, training, Kaggle runner, RESULTS.md (data, weights gitignored)
@@ -163,7 +164,7 @@ project-root/
 `-- demo/                   # demo script, video notes
 ```
 
-No database: nothing is stored. Removed on 2026-10-24 as unused placeholders: backend/,
+Only handoffs are stored (SQLite, 24 hours). Removed on 2026-10-24 as unused placeholders: backend/,
 services/bridge/, services/voice/, apps/staff-console/, configs/, data/eval/, design/.
 
 ## 9. Rules for working in this repo
