@@ -50,7 +50,9 @@ export default function PlainChat() {
   useEffect(() => {
     document.title = 'EQ.ai · Plain mode'
   }, [])
-  useEffect(() => endRef.current?.scrollIntoView({ block: 'end' }), [msgs, interim])
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' }) // braces: Chrome's scrollIntoView returns a Promise, not a cleanup
+  }, [msgs, interim])
 
   async function send(raw: string) {
     const text = raw.trim()

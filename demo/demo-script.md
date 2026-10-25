@@ -21,14 +21,23 @@ registration opens Friday.
 - [ ] Recording: record each side as its own clip, then put them side by side in **Clipchamp** (built into Windows 11).
 - [ ] Record the narration afterward as a voice-over. If you narrate live, the bear transcribes it.
 
-## 2. The plain chatbot (left side)
+## 2. The plain chatbot (left side): https://eqai.study/plain
 
-- Choose a **scripted support chatbot**, like the bank or login bots that frustrated you. Don't use ChatGPT
-  or Claude: they already sound kind in text, so the comparison would be unfair and weaker.
-- **Type the same four lines** below, word for word.
+**Plain mode** is EQ.ai with its emotion features turned off. It uses the same Claude model, the same
+official SJSU pages and the same Cartesia voice. What's missing:
+- no camera and no emotion estimate
+- the same neutral voice at 1.0× for every reply
+- no "Am I reading that right?" check-in
+- no "Talk to a person"
+
+Because only one thing changes between the two sides, the comparison is fair. Its prompt tells Claude to
+answer the question only and not to react to feelings. The 988 crisis line stays on, because it is a
+safety rule, not an emotion feature.
+
+- **Say the same four lines** below into its mic, word for word, in one run.
+- Plain mode uses Chrome's default microphone. Pick your headset from the mic icon in the address bar.
+- Label it in the video as **"Same assistant, emotion features off"**.
 - Record what it really says. Don't edit or stage its replies.
-- Hide its name and logo (blur or crop) and call it "a typical automated chatbot". The point is the
-  pattern, not one company.
 
 ## 3. The lines (same words on both sides)
 
@@ -54,8 +63,8 @@ Then click **Talk to a person**:
   registration), the deadline (Friday), what you tried (uploaded tax documents three days ago, called with
   no answer), and a first step for the advisor.
 
-The plain chatbot gets the same four lines. For the handoff, film whatever it really does: a "contact us"
-link, a phone number, or nothing.
+Plain mode gets the same four lines. It has no "Talk to a person" button, so the student is left to call
+the office alone. That contrast is the point.
 
 **What to point at on the emotion map** (right panel on a laptop): the face reading, the voice reading,
 and the final state with its confidence. If the face says something different from the final state, leave
@@ -76,8 +85,8 @@ it in the video. It shows the system is an estimate that checks with you, which 
 | 0:00–0:15 | You, or a black screen with text | "Every time I needed help, with a login, a bank account or a deposit, I had to get past a chatbot first. It talked too fast, and it didn't feel human. When I finally reached a person, I had to explain everything again. Then it happened at my school." |
 | 0:15–0:22 | Landing page, eqai.study | "This is EQ.ai, a voice assistant for international students at San José State, built for one problem: a hold that blocks registration." |
 | 0:22–0:32 | Setup screen | "I pick my problem and choose voice. The camera is optional, and nothing is stored." |
-| 0:32–0:50 | Split screen, line 1 | "On the left, a typical automated chatbot. On the right, EQ.ai. Same words." |
-| 0:50–1:15 | Split screen, line 2 | "When I'm confused, the plain bot answers the same way. EQ.ai uses simpler words, and Cartesia Sonic speaks calmer and slower." |
+| 0:32–0:50 | Split screen, line 1 | "On the left, the same assistant with its emotion features turned off. On the right, EQ.ai. Same words, same official pages." |
+| 0:50–1:15 | Split screen, line 2 | "When I'm confused, the plain version answers in the same voice and at the same speed. EQ.ai uses simpler words, and Cartesia Sonic speaks calmer and slower." |
 | 1:15–1:40 | Split screen, line 3 | "When I'm frustrated, EQ.ai doesn't assume. It asks: am I reading that right? Emotion estimates can be wrong, especially with accents, so it checks first." |
 | 1:40–2:10 | Line 4, then the handoff and case note | "I ask for a person. I decide whether my emotion estimate is shared. The advisor gets a case note that Claude wrote from our chat: the problem, the deadline, what I tried, and a first step. I explain it once." |
 | 2:10–2:40 | Emotion map, then a quick shot of the Jetson | "Cartesia Ink 2 turns my speech into text. My own face and voice models run on this NVIDIA Jetson, and only labels leave it. Claude reads my words and those labels, estimates my state, and answers only from official SJSU pages, with citations. Safety rules live in code: voice alone never triggers an action, and distress always shows the 988 lifeline." |
