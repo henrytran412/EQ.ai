@@ -29,6 +29,7 @@ CRISIS = ("If you are in crisis or thinking about harming yourself, you can call
           "Suicide and Crisis Lifeline, any time.")
 FALLBACK_REPLY = ("I'm sorry, I can't answer that reliably right now. Would you like me to connect you "
                   "with an advisor who can help?")
+PLAIN_FALLBACK = "I'm sorry, I can't answer that right now. Please try again later."
 
 
 CARTESIA_VERSION = "2026-08-14"
@@ -95,6 +96,7 @@ class ChatRequest(BaseModel):
     text: str = Field(max_length=4000)
     history: list[Turn] = Field(default_factory=list, max_length=40)
     awaiting_confirmation: bool = False
+    plain: bool = False  # the /plain comparison page: same answers, emotion features off
 
     @field_validator("text")
     @classmethod
@@ -199,10 +201,38 @@ def create_app(model=None, knowledge_dir: Path | None = None, allowed_origins: l
                                 "next_step": "Read the student's messages and follow up with them."}}
         return {"source": "claude", "summary": summary.model_dump()}
 
+    def plain_chat(req: ChatRequest, passages) -> dict:
+        """Comparison mode for the demo (/plain): same pages, model and voice, none of the emotion features.
+        The crisis line stays: it is a safety rule, not an emotion feature."""
+        started = time.perf_counter()
+        try:
+            turn = model.respond_plain(req, passages)
+        except Exception:  # noqa: BLE001 - never leave the student without an answer
+            log.exception("plain model failed")
+            turn = None
+        timing = {"model_ms": round((time.perf_counter() - started) * 1000)}
+        log.info("chat plain model_ms=%d", timing["model_ms"])
+        text, citations, uncertainty = PLAIN_FALLBACK, [], "no reliable answer"
+        if turn is not None:
+            text, uncertainty = turn.reply, turn.uncertainty
+            if turn.crisis:
+                text = " ".join(filter(None, [text, CRISIS, os.environ.get("CAMPUS_COUNSELING", "").strip()]))
+            by_id = {p.id: p for p in passages}
+            for pid in turn.cited_ids:
+                p = by_id.get(pid)
+                if p and all(c["url"] != p.url for c in citations):
+                    citations.append({"title": p.title, "url": p.url})
+        return {"reply": {"text": text, "citations": citations, "uncertainty": uncertainty},
+                "tone": {"state": "neutral", "confidence": 0.0, "ask_confirmation": False,
+                         "tts_params": {"speed": 1.0, "emotion": "neutral"}, "avatar_expression": "neutral"},
+                "behavior": {"mode": "normal", "offer_handoff": False}, "timing": timing}
+
     @app.post("/chat")
     def chat(req: ChatRequest, request: Request):
         check_rate(chat_rl, request)
         passages = kb.search(f"{req.topic.replace('_', ' ')} {req.text}", k=4)
+        if req.plain:
+            return plain_chat(req, passages)
         stamped = signals.get(req.session_id)
         latest = stamped[1] if stamped and time.time() - stamped[0] < SIGNAL_TTL_SEC else None
         started = time.perf_counter()

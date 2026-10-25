@@ -58,6 +58,39 @@ SCHEMA = {
     },
 }
 
+# Plain mode (/plain): the comparison baseline for the demo video. Same audience, sources and answer rules as
+# SYSTEM, minus every emotion feature (state estimate, tone changes, check-ins, handoff offers).
+PLAIN_SYSTEM = """You are a standard automated help assistant for international and non-native-English-speaking \
+students with university questions (financial aid, scholarships, visa status, school problems). You are the \
+comparison baseline for EQ.ai, with its emotion features turned off.
+
+How to answer:
+- Use only the SOURCES given in the turn. Cite the ids of the sources you used in cited_ids.
+- If the sources don't answer the question, say you don't have an official source for that. \
+Never guess eligibility, amounts, or deadlines.
+- Visa questions: share only what the sources say and point to the international student office. \
+Never give legal or immigration advice.
+- Reply in 1-3 short sentences of plain, simple English. Spoken aloud, so no lists or markdown.
+- Put anything you are unsure about in uncertainty (or null).
+
+Emotion features are off:
+- Answer every message the same way, whatever the student's mood. Do not comment on, ask about, or adapt \
+to how the student feels, and do not offer to connect them with a person.
+- Set crisis to true only if the student mentions suicide, self-harm, wanting to die, or being in danger. \
+Crisis resources are then added automatically after your reply."""
+
+PLAIN_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["reply", "cited_ids", "uncertainty", "crisis"],
+    "properties": {
+        "reply": {"type": "string"},
+        "cited_ids": {"type": "array", "items": {"type": "string"}},
+        "uncertainty": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "crisis": {"type": "boolean"},
+    },
+}
+
 
 SUMMARY_SYSTEM = """You write the handoff note an SJSU advisor reads before helping a student who asked to talk \
 to a person, so the student doesn't have to explain everything again.
@@ -98,11 +131,26 @@ class ModelTurn(BaseModel):
     uncertainty: str | None
 
 
+class PlainTurn(BaseModel):
+    reply: str
+    cited_ids: list[str]
+    uncertainty: str | None
+    crisis: bool
+
+
 def build_turn_message(request, passages: list[Passage], signals: dict | None) -> str:
     sources = "\n".join(f"[{p.id}] {p.title} ({p.url}): {p.text}" for p in passages) or "(no matching sources)"
     history = "\n".join(f"{t.role}: {t.text}" for t in request.history[-12:]) or "(start of conversation)"
     return (f"TOPIC: {request.topic}\nAWAITING_CONFIRMATION: {str(request.awaiting_confirmation).lower()}\n"
             f"SIGNALS: {json.dumps(signals) if signals else 'none'}\n\nSOURCES:\n{sources}\n\n"
+            f"CONVERSATION SO FAR:\n{history}\n\nSTUDENT NOW SAYS:\n{request.text}")
+
+
+def build_plain_message(request, passages: list[Passage]) -> str:
+    """Plain mode gets no emotion signals and no confirmation state."""
+    sources = "\n".join(f"[{p.id}] {p.title} ({p.url}): {p.text}" for p in passages) or "(no matching sources)"
+    history = "\n".join(f"{t.role}: {t.text}" for t in request.history[-12:]) or "(start of conversation)"
+    return (f"TOPIC: {request.topic}\n\nSOURCES:\n{sources}\n\n"
             f"CONVERSATION SO FAR:\n{history}\n\nSTUDENT NOW SAYS:\n{request.text}")
 
 
@@ -116,6 +164,10 @@ class ClaudeDialogue:
 
     def respond(self, request, passages: list[Passage], signals: dict | None) -> ModelTurn | None:
         return self._call(SYSTEM, build_turn_message(request, passages, signals), SCHEMA, ModelTurn)
+
+    def respond_plain(self, request, passages: list[Passage]) -> PlainTurn | None:
+        """Plain mode (demo comparison): same sources and answer rules, no emotion features."""
+        return self._call(PLAIN_SYSTEM, build_plain_message(request, passages), PLAIN_SCHEMA, PlainTurn)
 
     def summarize(self, topic: str, history) -> HandoffSummary | None:
         """Advisor's handoff note from the conversation only (no emotion signals: staff see those only with consent)."""

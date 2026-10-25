@@ -138,6 +138,21 @@ class ClaudeCalls(unittest.TestCase):
         self.assertEqual(sent["output_config"]["effort"], "low")
         self.assertEqual(sent["fallbacks"], "default")
 
+    def test_plain_turn_gets_the_plain_prompt_and_no_emotion_signals(self):
+        from services.dialogue.app import ChatRequest
+        from services.dialogue.llm import ClaudeDialogue
+        out = {"reply": "Upload the documents on your To Do List.", "cited_ids": [], "uncertainty": None,
+               "crisis": False}
+        client, sent = fake_anthropic(json.dumps(out))
+        turn = ClaudeDialogue(client=client, model="claude-opus-5-5").respond_plain(
+            ChatRequest(session_id="s", topic="other", text="I don't get it", plain=True), [])
+        self.assertEqual(turn.reply, out["reply"])
+        self.assertIn("Emotion features are off", sent["system"][0]["text"])
+        self.assertNotIn("SIGNALS", sent["messages"][0]["content"])
+        self.assertNotIn("AWAITING_CONFIRMATION", sent["messages"][0]["content"])
+        self.assertEqual(sent["output_config"]["format"]["schema"]["required"],
+                         ["reply", "cited_ids", "uncertainty", "crisis"])
+
 
 if __name__ == "__main__":
     unittest.main()
