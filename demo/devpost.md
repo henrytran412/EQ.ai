@@ -2,11 +2,13 @@
 
 ## Inspiration
 
-> **[YOUR STORY, 2–3 sentences in your own words: the real moment you, or a friend you talked to, got stuck at SJSU on a hold, a deadline or an automated school line. Real details only.]**
+My inspiration comes from my own life. Whenever I had a problem, like a login issue, opening a bank account or depositing money, I first had to get through an automated chatbot before I could reach a real person. Every time, the same things frustrated me: it spoke too fast, and it didn't feel human or supportive. I wanted a real conversation, with someone who understood my problem and showed empathy and support. That gave me the idea for an adaptive conversational AI that changes its tone and the way it speaks based on the user's real situation and emotions.
 
-International students at San José State University (SJSU) deal with the same high-stakes paperwork as every student, like financial aid holds, registration deadlines, scholarship rules and visa questions, but often in their second language. The answers do exist. They are spread across official pages from Financial Aid, the Bursar, the Registrar and International Student and Scholar Services (ISSS), and they are written in dense English. Automated phone and chat lines don't notice when you're lost. They repeat the same answer at the same speed. When you finally reach a person, you explain everything again from the start.
+There was a second problem. When I was finally moved to a real person, some of my information wasn't passed along, and I had to repeat everything again. The same thing happened at my school.
 
-So I asked: what if the assistant noticed you were confused and changed **how** it talked, with simpler words and a slower, calmer voice? And what if, when it couldn't help, it handed you to a person with your case already written, so you **explain it once**? The goal is not to replace advisors. It is to get students to the right person faster.
+International students at San José State University (SJSU) deal with the same high-stakes paperwork as every student, like financial aid holds, registration deadlines, scholarship rules and visa questions, but often in their second language. The answers do exist, but they are spread across official pages from Financial Aid, the Bursar, the Registrar and International Student and Scholar Services (ISSS), written in dense English.
+
+So I built EQ.ai to help international students handle stressful problems like holds and visa questions in the easiest way possible. It notices when you seem confused and changes **how** it talks, with simpler words and a slower, calmer voice. When it can't help, it hands you to a person with your case already written, so you **explain it once**. The goal is not to replace advisors. It is to get students to the right person faster.
 
 ## What it does
 
