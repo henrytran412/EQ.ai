@@ -77,6 +77,12 @@ and the final state with its confidence. If the face says something different fr
 it in the video. It shows the system is an estimate that checks with you, which is honest.
 
 **Tips for the readings:**
+- **Hold the mic button while you say each line, and let go to send.** With a quick tap, a pause (like
+  "Sorry... um") can end your turn early and send half a sentence, which reads as neutral.
+- **The final state changes only when you send a message.** Faces and tone of voice between messages show up
+  in the face and voice readings, and count toward your next message.
+- If you see "Sorry, I couldn't reach the assistant", the venue Wi-Fi dropped the connection. Say the line
+  again, or restart the take.
 - **Words carry the most weight.** Claude reads your words first, and the face and voice add evidence.
   Voice alone never changes what the bear does; it can only make the bear ask.
 - **The face model has no "confused" emotion.** It knows anger, disgust, fear, happy, neutral, sad and
