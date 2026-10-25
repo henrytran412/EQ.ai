@@ -47,6 +47,8 @@ def create_app(detector=None, face=None, voice=None, post_signals: Callable[[dic
                min_frame_sec: float = 0.25, max_sockets: int = MAX_SOCKETS) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")  # uvicorn hides app logs
     logging.getLogger("httpx").setLevel(logging.WARNING)  # otherwise one line per /signals post
+    # uvicorn logs every WebSocket with the visitor's IP on its error logger, even with --no-access-log
+    logging.getLogger("uvicorn.error").addFilter(lambda record: '"WebSocket ' not in record.getMessage())
     if detector is None and face is None and voice is None:
         from .models import load_defaults
         detector, face, voice = load_defaults()
